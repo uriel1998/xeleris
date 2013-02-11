@@ -1,0 +1,408 @@
+' ********************************************************************************************
+Rem  Version 1.5 GI Bleed Protocol 25 Nov 2009
+Rem  by Steven Saus
+Rem  This protocol will be able to take two 45-minute (1 min/fr) dynamic acquisitions and optional delay
+Rem  static, combine the dynamics, create a composite dynamic, and present each 45 minute segment
+Rem  separately as well as a "whole study" 90m dynamic with composite and delays for comparison.
+' ********************************************************************************************
+'NOTE HARDCODED VARIABLE FOR INSTITUTION ID IN LINES !  You MUST change these for other institutions!
+
+Option Compare Text
+Const VERSION        As String = "v1.5 GI Bleed Protocol" 
+
+
+' ********************************************************************************************
+Rem History
+Rem v1.5	- 24 Nov 2009
+Rem    	   	- Cleaned up code, added InstitutionID (hardcoded) and autolabeling
+Rem v1.0	- 9 August 2005
+Rem    	   	- Added modality checks
+Rem v0.9d  	- 23 May 2005
+Rem    	   	- fix for < 45 min acquisitions, added error traps for 2nd 45 and such, added 1min/dyn in Show Whole
+Rem v0.9c   - 27 April 2005
+Rem    	   	- took out subtraction views, put in option for delay STATICS (working), finished 5/20/05
+Rem v0.9b   - 18 April 2005
+Rem    	   	- fixed bug where loading only 1st 45 min would crash while looking for acc #
+Rem v0.9a   - 4 Mar 2005
+Rem    	   	- First build from scratch (though I cribbed a lot from other studies I've written)
+' ********************************************************************************************
+
+Dim mainScreen       As Screen   'The main screen
+Dim mainVP()         As Viewport 'The viewports on the main screen
+Dim number_of_vports As Integer  'The number of viewports
+
+Dim MaxImages        As Integer
+Dim ImageItems()     As Image
+Dim accimage    As Image
+Dim Dyn_Labels(4)  As Annot
+Dim bobtext(16) As Annot
+Dim scr_str(3) As String ' scratch str
+Dim scratch(1) As Variant 'variant scratch
+Dim counter  As Integer
+Dim counter1 As Integer
+Dim dbval As Variant
+Dim done(2) As Boolean 
+Dim study1 As Study
+Dim patientname As Variant  
+Dim patientid As Variant
+Dim seriesdate As Variant
+Dim tech As String
+Dim bobVP As Viewport
+Dim series1 As series
+Dim ACRText(12) As Annot '1.5
+
+Type Results                                      
+    raw(3) As Image '(0 = 1st45, 1= 2nd45, 2 = whole thing)
+    compressed(3) As Image '(0 = 1st45, 1= 2nd45, 2 = whole thing)
+    extracted(4) As Image '(0=fr1, 1=fr45, 2=fr46, 3=fr90)
+    subtracted(3) As Image '(0 = 1-45, 1 = 46-90, 2= 1-90))
+    delay(2) As Image
+    techinit As String
+    'windowing_compress(2,2) As Double              ' not sure how i can save this....
+    'windowing_big(4,2) As Double               ' what with them being on different screens
+End Type        
+
+Dim gibleed_results As Results 
+' ********************************************************
+' Input one of our 45min dynamics, and tell it which one it is, and it'll 
+' reframe and subtract and everything... and if there's all the extracted there, it'll go ahead
+' and do subtraction as well.
+' ********************************************************
+Function process_dyn(inputa As Image, order As Integer)
+    Set accimage = Copy(inputa,"for accession# purposes")
+    scr_str(0) = "Raw dynamics #" & order
+    scr_str(1) = "ANT 5min/fr dyn #" & order
+    Set gibleed_results.raw(order-1) = Copy(inputa,scr_str(0)) 'copying raw image
+    Set gibleed_results.compressed(order-1) = ReframeStep(inputa,5,5,scr_str(1))  ' compressing input image
+    if order = 1 Then
+        'Set gibleed_results.extracted(0) = Extract(inputa, 1, 1)    
+        'Set gibleed_results.extracted(1) = Extract(inputa, 45,45)
+        'Set gibleed_results.subtracted(0) = Subtract(gibleed_results.extracted(0),gibleed_results.extracted(1),"1-45 subtract")
+        done(0) = True
+    elseif order =2 Then
+        'Set gibleed_results.extracted(2) = Extract(inputa,1,1)
+        'Set gibleed_results.extracted(3) = Extract(inputa,45,45)
+        'Set gibleed_results.subtracted(1) = Subtract(gibleed_results.extracted(2),gibleed_results.extracted(3),"46-90 subtract")
+        done(1) = True
+    end if
+    If (gibleed_results.compressed(1) Is Nothing) = False Then
+        If (gibleed_results.compressed(0) Is Nothing) = False Then ' check to make sure both processed already
+            'Set gibleed_results.subtracted(2) = Subtract(gibleed_results.extracted(0),gibleed_results.extracted(3),"1-90 subtract")
+            Set gibleed_results.compressed(2) = AppendImage(gibleed_results.compressed(0),gibleed_results.compressed(1),"ANT 90m 5m/fr")
+            Set gibleed_results.raw(2) = AppendImage(gibleed_results.raw(0),gibleed_results.raw(1),"ANT 90m 1m/fr")
+        End If
+    End If
+End Function    
+
+
+'***************** DataValidate ********************
+Function  DataValidate(dv_Message       As String,_
+                       sel_image_list() As Image,_
+                   numImages        As Integer) As Integer
+        Dim item      As Integer
+        Dim dbVal     As Variant
+        maxImages = 0
+        Dim series2 As Series
+
+        For item = 0 To numImages-1
+        Set series2 = GetSeries(sel_image_list(item))  'begin 1.0
+		retval = GetAttribValue(series2,"Modality",dbval,1)  
+		If dbval = "OT" Then
+			reval = SetAttribValue(series2,"Modality","NM",1)
+			Save series2
+		End If		'end 1.0
+		retval = GetAttribValue(series2,"InstitutionID",dbval,1) 'InstitutionID check begin 1.5
+		If dbval = "YOUR Hospital" Then  'Note the hard-coding of this variable!
+			'It's what I want - continue.
+			Save series2
+		Else
+			reval = SetAttribValue(series2,"InstitutionID","YOUR Hospital",1) 'Note the hard-coding of this variable!
+			Save series2
+		End If      'end 1.5
+        retval = GetAttribValue(series2,"SeriesID", dbval, 1)
+        If dbval Like "*Results*" Then   ' This means it doesn't try to load results until I call for 'em
+        Else
+                MaxImages = MaxImages + 1
+                Redim Preserve ImageItems(MaxImages)
+                Set ImageItems(MaxImages -1) = sel_image_list(item)   ' had to change the imageitems bit here to get decent counts and no errors.
+        End If      
+    Next item
+        dv_Message = "No Error message"
+        DataValidate = 1
+End Function   
+
+'***************************************MAIN********************************
+Sub Main    
+    Set mainScreen=CreateScreen("basic1.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+
+	Set bobVP = GetViewport("cell1")
+	scratch(0) = "Processing data.  Please wait."
+	Set bobtext(0) = AnnotText(bobVP,0.25,0.25,scratch(0))
+	bobtext(0).Font = LARGE_FONT
+
+'This isn't correct at all.  I wonder if Set accimage = Copy to redefine all of these is in order?	
+    ' In theory, this will load ONLY (and in this order) the 90, the 45, and then everything else.
+    done(1) = LoadResults(gibleed_results,"gibleed90_Results")
+	If done(1) = true Then
+		counter1 = process_dyn(gibleed_results.raw(0),1)		' yes, I'm reprocessing.
+		counter1 = process_dyn(gibleed_results.raw(1),2) 
+	Else						 							' I will not load results for the 45 min, if a 90 min results is also selected
+		done(0) = LoadResults(gibleed_results,"gibleed45_Results")
+	    If done(0) = true Then  
+		counter1 = process_dyn(gibleed_results.raw(0),1)
+		End If
+    End If
+
+	For counter1 = 0 To 1
+	If (gibleed_results.delay(counter1)) Is Nothing Then
+	Else
+		retval= GetAttribValue(gibleed_results.delay(counter1),"Dataset","DatasetName",dbval)
+		Set accimage = Copy(gibleed_results.delay(counter1),dbval)
+		Set gibleed_results.delay(counter1) = Copy(accimage,dbval)
+	End If
+	Next counter1
+
+    For counter = 0 To MaxImages-1
+        Load ImageItems(counter)
+        retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetType",dbval)              
+        If dbval <> 8 Then  
+		If dbval = 0 Then
+			' This is where we will add in the delay images options.  
+			retval= GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
+			scr_str(0)=dbval   ' don't need a loop like we do below
+			If gibleed_results.delay(0) Is Nothing Then
+				scr_str(1) = 1
+			ElseIf gibleed_results.delay(1) Is Nothing Then 
+				scr_str(1) = 2
+			Else				' process of elimination time
+				Set mainScreen=CreateScreen("basic7.rt")
+				number_of_vports = ListViewPorts(mainScreen,mainVP)
+				Display mainScreen
+				Set mainVP(0) = GetViewport("cell1")
+				Display ImageItems(counter),mainVP(0)   ' new image - should I label it such?
+				For counter1 = 2 To 3
+					scr_str(1) = "cell" & counter1
+					Set mainVP(counter1-1) = GetViewport(scr_str(1))
+					Display gibleed_results.delay(counter1-2),scr_str(1)
+					mainVP(counter1-1).Color = LINEAR
+					mainVP(counter1-1).LabelFormat = NUMBER_FORMAT
+					scratch(0) = CStr(counter1-1)
+					Set bobtext(counter1-1) = AnnotText(mainVP(counter1-1),0.25,0.25,scratch(0))
+					bobtext(counter1-1).Font = LARGE_FONT
+				next counter1
+				scr_str(1) = InputBox$("1 and 2 are already associated statics.  Which number do you want to replace?  " & Chr(10) & Chr(13) &  "Type QUIT or press Enter to quit.", "Be Cool Stay In School")
+				End If
+			If (scr_str(1) = "") = False Then
+				Set gibleed_results.delay(CInt(scr_str(1))-1) = Copy(ImageItems(counter),scr_str(0))
+'				scr_str(1) = ""  ' reset the string
+			End If
+		    Set mainScreen=CreateScreen("basic1.rt")
+		    number_of_vports = ListViewPorts(mainScreen,mainVP)
+		    Display mainScreen
+			Set bobVP = GetViewport("cell1")
+			scratch(0) = "Processing data.  Please wait."
+			Set bobtext(0) = AnnotText(bobVP,0.25,0.25,scratch(0))
+			bobtext(0).Font = LARGE_FONT		
+		Else
+			msgbox "Only raw dynamic images and static delays are allowed in this program."
+			exit sub
+		End If
+        else 
+            retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
+            scr_str(0) = dbval
+            matching_loop:  'lloooooooooooooooooooooooooooooooooooooop!
+            scratch(0) = Switch(scr_str(0) Like "*first*",1,scr_str(0) Like "*1st*",1,scr_str(0) Like "*imm*",1,scr_str(0) Like "*2nd*",2,scr_str(0) Like "*second*",2,scr_str(0) like "*90*",2)
+            If IsNull(scratch(0)) = True Then  ' nothing matched, dammit.
+                scr_str(1) = InputBox$("I can't tell if "  & scr_str(0) & " is the first or second set of images." & Chr(10) & Chr(13) &  "Which is it, first or second?  Type QUIT to quit.", "Be Cool Stay In School")
+                if scr_str(1) = "quit" then
+                ElseIf scr_str(1) = "" Then
+				Else
+	                scr_str(0) = scr_str(1)
+	                GoTo matching_loop
+                End If
+            end if
+            If done(CStr(scratch(0))-1) = True Then ' We've already got results for this bit...
+                scr_str(1) = InputBox$("We already have results that correspond to image set #" & CStr(scratch(0)) & "." & Chr(10) & Chr(13) &  "Which shall " & dbval & ", replace, the first or second?  Type QUIT for neither.", "Be Cool Stay In School")
+                if scr_str(1) = "quit" then  ' okay, not reassigning and giving another chance.  Nope.
+				ElseIf scr_str(1) = "" Then
+                Else 
+                    scr_str(0) = scr_str(1)
+                    scratch(0) = Switch(scr_str(0) Like "*first*",1,scr_str(0) Like "*1st*",1,scr_str(0) Like "*imm*",1,scr_str(0) Like "*2nd*",2,scr_str(0) Like "*second*",2,scr_str(0) like "*90*",2)
+                    done(CStr(scratch(0))-1) = False
+                    goto matching_loop
+                End if
+            else
+                counter1 = process_dyn(ImageItems(counter),Cstr(scratch(0)))
+            end if
+        end If
+    next counter
+    If gibleed_results.techinit = "" Then
+        scr_str(0) = InputBox$("Technologist initials, please.","Tech Initials")
+	    If (scr_str(0) = "") = False Then
+	        gibleed_results.techinit = scr_str(0)
+	    Else
+	        gibleed_results.techinit = "NO TECH INITIALS"
+		End If
+    End If
+    '******** ACCESSION NUMBER!!!!!!!!!!!!!
+
+	Set accimage = Copy(gibleed_results.raw(0),"for accession #")
+    retval = GetAttribValue(accimage,"Patient","PatientName",patientname)
+    retval = GetAttribValue(accimage,"Patient","PatientID",patientid)
+    retval = GetAttribValue(accimage,"Series","SeriesDate",seriesdate)    
+    retval = GetAttribValue(accimage, "Study", "AccessionNumber", dbval)
+    If dbval = "" Then
+        Set study1 = GetStudy(accimage)
+        scr_str(0) = InputBox("Enter an Accession Number", "Accession Number", dbval)
+        accession_number_loop:
+        If (scr_str(0) = "") = False Then
+            retval = SetAttribValue(study1, "AccessionNumber", scr_str(0), 1)
+        Else
+            scr_str(0) = InputBox("You MUST enter an Accession Number", "Accession Number", dbval)
+            goto accession_number_loop
+        End If
+        Save study1
+    End If    
+    Set mainScreen=CreateScreen("basic1.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+
+	Set bobVP = GetViewport("cell1")
+	scratch(0) = "Ready to display data."
+	Set bobtext(0) = AnnotText(bobVP,0.25,0.25,scratch(0))
+	bobtext(0).Font = LARGE_FONT
+
+End Sub
+'**************************************** FIRST 45 MIN
+Sub show_first_45
+    
+    Set mainScreen=CreateScreen("basic1.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+	Set mainVP(0) = GetViewport("cell1")
+	If gibleed_results.compressed(0) Is Nothing Then
+		scratch(0) = "This data is not available/acquired."
+		Set bobtext(0) = AnnotText(mainVP(0),0.25,0.25,scratch(0))
+		bobtext(0).Font = LARGE_FONT
+	Else
+	    Display gibleed_results.compressed(0),"cell1"
+	    VPFormat mainVP(0),3,3
+	    Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.1,patientname & Chr(10) & Chr(13) & patientid,1)                        
+	    Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.1,Cstr(seriesdate),3)                        
+	    Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.1,gibleed_results.techinit,2)
+		Set ACRText(0) = AnnotText(mainVP(0),0.1,0.5,"R",4)  '1.5
+	End If
+    mainVP(0).Color =  LINEAR
+    mainVP(0).LabelFormat = NUMBER_FORMAT
+    retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ROI_TOOL)
+    
+End Sub
+'**************************************** SECOND 45 MIN
+Sub show_second_45
+
+    Set mainScreen=CreateScreen("basic1.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+    Set mainVP(0) = GetViewport("cell1")
+	If gibleed_results.compressed(1) Is Nothing Then
+		scratch(0) = "This data is not available/acquired."
+		Set bobtext(0) = AnnotText(mainVP(0),0.25,0.25,scratch(0))
+		bobtext(0).Font = LARGE_FONT
+	Else
+	    Display gibleed_results.compressed(1),"cell1"
+	    VPFormat mainVP(0),3,3
+	    Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.1,patientname & Chr(10) & Chr(13) & patientid,1)                        
+	    Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.1,Cstr(seriesdate),3)                        
+	    Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.1,gibleed_results.techinit,2)
+		Set ACRText(1) = AnnotText(mainVP(0),0.1,0.5,"R",4)  '1.5		
+	End If
+    mainVP(0).Color =  LINEAR
+    mainVP(0).LabelFormat = NUMBER_FORMAT
+    retb =  SelectTools(True,SCROLL_TOOL,CINE_TOOL,ANNOT_TOOL,COLOURMAP_TOOL,ROI_TOOL)
+End Sub
+'**************************************** WHOLE SHEBANG
+Sub show_whole
+    Set mainScreen=CreateScreen("basic7.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+    Set mainVP(0) = GetViewport("cell1")
+    VPFormat mainVP(0),3,6
+	If gibleed_results.compressed(2) Is Nothing Then
+		VPFormat mainVP(0),3,3
+		Display gibleed_results.compressed(0),"cell1"
+	Else
+	    Display gibleed_results.compressed(2),"cell1"
+	End If
+    For counter = 2 To 3						' changed to display delay images 0.9c the subtracted images are no longer displayed.
+        If (gibleed_results.delay(counter-2) Is Nothing) = False Then
+            scr_str(0) = "cell" & counter
+            Set mainVP(counter) = GetViewport(scr_str(0))
+            Display gibleed_results.delay(counter-2),scr_str(0)
+        end if
+    next counter
+	If gibleed_results.raw(2) Is Nothing Then  'if there isn't a whole, then there's no second 45
+			If gibleed_results.raw(0) Is Nothing Then
+			Else
+				Display gibleed_results.raw(0),"cell4"
+			End If
+	Else
+		Display gibleed_results.raw(2),"cell4"
+	End If
+    Set mainVP(0) = GetViewport("cell1")
+    Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.1,patientname & Chr(10) & Chr(13) & patientid,1)                        
+    Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.1,Cstr(seriesdate),3)                        
+    Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.1,gibleed_results.techinit,2)
+'	Set ACRText(2) = AnnotText(mainVP(0),0.1,0.5,"R",4)  '1.5
+
+	For counter=0 To 3		'This is kludgy, but works.
+		scr_str(0) = "cell" & counter+1
+		Set mainVP(counter) = GetViewport(scr_str(0))
+	    mainVP(counter).Color =  LINEAR
+	    mainVP(counter).LabelFormat = NUMBER_FORMAT
+		'start 1.5
+		If (counter = 1) Then
+			If (gibleed_results.delay(0) Is Nothing) = False Then
+				Set ACRText(3) = AnnotText(mainVP(counter),0.1,0.5,"R")  
+			End If
+		ElseIf (counter = 2) Then
+			If (gibleed_results.delay(1) Is Nothing) = False Then
+				Set ACRText(4) = AnnotText(mainVP(counter),0.1,0.5,"R")  
+			End If
+		Else 
+			Set ACRText(counter+5) = AnnotText(mainVP(counter),0.1,0.5,"R")  
+		End If
+		' end 1.5
+	Next
+    retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ROI_TOOL)
+
+End Sub
+
+Sub save_it_all  ' should be simple - we assigned stuff already.
+    if done(1) = True Then ' we have all results
+        SaveResults gibleed_results,"gibleed90_Results"
+	'Changing modality of the results stuff
+	Set series1 = GetSeries(gibleed_results.raw(1))
+	retval = GetAttribValue(gibleed_results.raw(1),"Series","Modality",dbVal)
+	If dbVal = "OT" Then
+		reval = SetAttribValue(series1,"Modality","NM",1)
+		Save series1
+	End If
+	'END EDITING FOR MODALITY
+        msgbox "90 min results saved."
+    elseif done(0) = True Then
+        SaveResults gibleed_results,"gibleed45_Results"
+	'Changing modality of the results stuff
+	Set series1 = GetSeries(gibleed_results.raw(0))
+	retval = GetAttribValue(gibleed_results.raw(0),"Series","Modality",dbVal)
+	If dbVal = "OT" Then
+		reval = SetAttribValue(series1,"Modality","NM",1)
+		Save series1
+	End If
+	'END EDITING FOR MODALITY
+        msgbox "45 min results saved."
+    else
+        msgbox "Nothing has been processed to save!"
+    end if
+End Sub

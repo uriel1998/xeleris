@@ -1,0 +1,479 @@
+' ********************************************************************************************
+Rem  Version 1.3 Brain Flow Protocol 25 Nov 2009
+Rem  by Steven Saus
+Rem  This protocol will be able to take a dynamic brain flow, compress the flow to a user-
+Rem  defined amount, and present the (compressed) flow and blood pool images.
+Rem  As of version 1.2, the brain flow will be (limited due to camera limitations) three
+Rem  90 second dynamic images.  The first will be a flow, the second two will create two 
+Rem  composite blood pools
+' ********************************************************************************************
+'NOTE HARDCODED VARIABLE FOR INSTITUTION ID IN LINES 110 & 114!  You MUST change these for other institutions!
+'Saved results for statics in place - need to add in code
+'Add in annotation bit
+
+Const VERSION	     As String = "v1.3 Brain Flow Protocol" 
+Dim titleVP As Viewport
+Dim titleAnnot As Annot
+
+' ********************************************************************************************
+Rem History
+Rem v1.3 	- 25 Nov 2009
+'			- added InstitutionID (hardcoded) and autolabeling
+Rem v1.2.1 	- 9 Aug 2005 
+'			- added modality checks
+Rem v1.2	- 4 Feb 2005
+'			- Converted to 3 63fr & 1.5sec/fr acquisitions due to transfer error with
+'			ADAC-> Xeleris systems
+'			- Saved results added
+'			- Added ACC# display, other tweaks and stuff too numerous to mention
+Rem v1.1    - 8 Aug 2004
+'		   	- Added check for accession # for PACS implementation
+Rem v1.0    - 8 April 2004
+Rem    	   	- First build from scratch (though I cribbed a lot from other studies I've written)
+' ********************************************************************************************
+
+' ********************************************************************************************
+' *                     The Big Declarations
+' ********************************************************************************************
+
+Dim mainScreen       As Screen   'The main screen
+Dim mainVP()         As Viewport 'The viewports on the main screen
+Dim number_of_vports As Integer  'The number of viewports
+Dim MaxImages        As Integer
+Dim ImageItems()     As Image
+Dim flow(3)	As Image  ' raw acquisitions
+Dim rawflow As Image
+Dim displayflow	As Image	' compressed flow (if compressed)
+Dim bloodpool(2) As Image	' composited blood pools
+Dim retb As Boolean
+Dim i As Integer
+Dim dbval As Variant
+Dim tomp(3) As Variant
+Dim alreadydoneboss As Integer
+Rem These are the patient info fields - there are no comparisons for mixed patient fields
+Dim series1 As Series
+Dim patientname As Variant
+Dim patientid As Variant
+Dim seriesdate As Variant
+Dim tech As String
+Dim AnnoText(7) As Annot
+Dim bobVP(4) As Viewport
+Dim processed_dyn As Integer
+Dim bob As String
+Dim phasenum As Variant
+Dim phasedur(3) As Variant
+Dim phasefrdur(3) As Variant
+Dim fr_per_phase(3) As Variant
+Dim scratch As Variant
+
+Type Results									  '1.2 begin
+	windowing(3,2) As Double
+	zoom(3) As Double
+	pan(3,2) As Double
+	techinit As String
+	displayflow As Image
+	rawflow As Image
+	bloodpool(2) As Image
+	statics(4) As Image	' not used yet - i need to add this, but have to have this coded by the
+	'end of the day today, and it's going to be tight.
+End Type											' 1.2 end
+Dim bflow_results As Results '1.2
+
+
+Option Compare Text  ' turning off case sensitivity
+
+' ********************************************************************************************
+' *                     Data Validate
+' ********************************************************************************************
+
+
+Function  DataValidate(dv_Message       As String,_
+                       sel_image_list() As Image,_
+                   numImages        As Integer,_
+                   sel_curve_list() As Curve,_
+                   numCurves        As Integer) As Integer
+		Dim series2 As Series '1.2
+        Dim item      As Integer
+        Dim dbVal     As Variant
+
+        maxImages = 0
+        maxCurves = 0
+
+        For item = 0 To numImages-1
+		Set series2 = GetSeries(sel_image_list(item))  'Modality Check begin 1.2.1
+		retval = GetAttribValue(series2,"Modality",dbval,1)  
+		If dbval = "OT" Then
+			reval = SetAttribValue(series2,"Modality","NM",1)
+			Save series2
+		End If		'end 1.2.1
+		retval = GetAttribValue(series2,"InstitutionID",dbval,1) 'InstitutionID check begin 1.3
+		If dbval = "YOUR Hospital" Then  'Note the hard-coding of this variable!
+			'It's what I want - continue.
+			Save series2
+		Else
+			reval = SetAttribValue(series2,"InstitutionID","YOUR Hospital",1) 'Note the hard-coding of this variable!
+			Save series2
+		End If      'end 1.3		
+		retval = GetAttribValue(series2,"SeriesID", dbval, 1)
+		If dbval Like "BflowResults*" Then   ' This means it doesn't try to load results until I call for 'em
+		Else			' end 1.2
+			MaxImages = MaxImages + 1
+	    	   ReDim Preserve ImageItems(MaxImages)
+		        Set ImageItems(item) = sel_image_list(item)
+	 		End If ' 1.2
+        Next item
+  
+        For item = 0 To numCurves-1
+                MaxCurves = MaxCurves + 1
+                Redim Preserve CurveItems(MaxCurves)
+                set CurveItems(item) = sel_curve_list(item)
+        Next item
+        dv_Message = "No Error message"
+        DataValidate = 1
+End Function
+
+' ********************************************************************************************
+' *                     MAIN
+' ********************************************************************************************
+Sub Main
+	Dim study1 As Study
+	Dim accimage As Image
+	'I'm migrating more towards this format (just as I did in C), where main is just a command
+	'and control function that calls the other things I need.  It works out so much better when
+	'dealing with multi-tabbed studies, and keeps things straight.  It's also where my bad habit
+	'of making universal declarations works out for the better.
+
+	seriesdate = 1
+	tech = ""
+	patientname = ""
+	processed_dyn = False
+	alreadydoneboss = False
+
+	'There should *never* be multiple patients for a brain flow.  
+	alreadydoneboss = LoadResults(bflow_results,"BflowResults") '[begin add 1.2]
+	If alreadydoneboss = True Then 
+		processed_dyn = True
+		If bflow_results.rawflow Is Not Nothing Then
+			Set rawflow = Copy(bflow_results.rawflow,"Raw Flow")
+		End If
+		If bflow_results.displayflow Is Not Nothing Then
+			retval = GetAttribValue(bflow_results.displayflow,"Dataset","DatasetName",dbval)
+			Set displayflow = Copy(bflow_results.displayflow,"30sec/fr Vent")
+		End If
+		for i = 0 to 1
+			If bflow_results.bloodpool(i) Is Nothing Then
+			Else
+				 retval = GetAttribValue(bflow_results.bloodpool(i),"Dataset","DatasetName",dbval)
+				 Set bloodpool(i)= Copy(bflow_results.bloodpool(i),dbval)		 
+			End If
+		Next
+		tech = bflow_results.techinit
+		retval = GetAttribValue(rawflow,"Patient","PatientName",patientname)
+		retval = GetAttribValue(rawflow,"Patient","PatientID",patientid)
+		retval = GetAttribValue(rawflow,"Series","SeriesDate",seriesdate)              
+		retval = GetAttribValue(displayflow,"Dataset","PhaseFrameDuration",phasefrdur(2),1)
+		bob = " " & phasefrdur(2)/1000 & " sec/fr"
+		Set accimage = Copy(rawflow,"accession#")
+	Else
+		For i = 0 To MaxImages-1
+			Load ImageItems(i)
+		Next i
+		Set accimage = Copy(ImageItems(0))
+		retval = GetAttribValue(ImageItems(0),"Patient","PatientName",patientname)
+		retval = GetAttribValue(ImageItems(0),"Patient","PatientID",patientid)
+		retval = GetAttribValue(ImageItems(0),"Series","SeriesDate",seriesdate)              
+	End If   '[end 1.2 add]  ' yes, I haven't added the additional static stuff yet.
+
+	' Checking for accession # - added 8/6/4, moved with 1.2
+
+	retval = GetAttribValue(accimage, "Study", "AccessionNumber", dbval)
+	If dbval = "" Then
+		Set study1 = GetStudy(accimage)
+		sName = InputBox("Enter an Accession Number", "Accession Number", dbVal)
+		accession_number_loop:
+		If (sName = "") = False Then
+			retval = SetAttribValue(study1, "AccessionNumber", sName, 1)
+		Else
+			sName = InputBox("You MUST enter an Accession Number", "Accession Number", dbVal)
+			GoTo accession_number_loop
+		End If
+		Save study1
+	End If
+
+	If alreadydoneboss = False Then
+		process_dyn
+	End If
+	display_dyn
+
+End Sub
+
+' ********************************************************************************************
+' *                     Dynamic Images (process)
+' ********************************************************************************************
+	
+Sub process_dyn
+
+	'Our brain flows have two phases - a flow and a blood pool.  We sometimes compress the
+	'flow, and that's the bulk of what's done here. The blood pool will be composites of the
+	'second two 90-second flows.
+
+	'First, determine the acquisition times.  First acquired = flow, second and third acquired
+	'will be blood pools.  Only one phase (that's the transfer error that caused this rewrite in the
+	'first place - ADAC to Xeleris can't handle multi-phase images now).   
+	For i = 0 To MaxImages-1
+		retval = GetAttribValue(ImageItems(i),"Dataset","StartTime",tomp(i))
+		retval = GetAttribValue(ImageItems(i),"Dataset","PhaseDuration",phasedur(i),1)
+		retval = GetAttribValue(ImageItems(i),"Dataset","PhaseFrameDuration",phasefrdur(i),1)
+		fr_per_phase(i) = phasedur(i) / phasefrdur(i)
+	Next i
+
+	If ((phasedur(1)*3) = phasedur(1)+phasedur(2)+phasedur(0)) = False Then' checkign To make sure it's acquired properly
+		msgbox "This program is designed to take in input of three dynamic images" & Chr(10) & Chr(13) & "of equal duration and frames.  The given input is not such."
+		msgbox "This program will now exit, weeping." & Chr(10) & Chr(13)
+		Exit Sub
+	End If
+
+	'sorting out the images by time.  Logic tree is below.
+	'1 < 2  &&  1 < 3
+	'	2 < 3
+	'	3 > 2
+
+	If tomp(0) < tomp(1) Then
+		If tomp(0) < tomp(2) Then
+			Set rawflow = Copy(ImageItems(0),"Raw Flow")
+			If tomp(1) < tomp(2) Then
+				Set bloodpool(0) = Reframe(ImageItems(1),1,fr_per_phase(1),"Blood Pool 1")
+				Set bloodpool(1) = Reframe(ImageItems(2),1,fr_per_phase(2),"Blood Pool 2")
+			else
+				Set bloodpool(0) = Reframe(ImageItems(2),1,fr_per_phase(2),"Blood Pool 1")
+				Set bloodpool(1) = Reframe(ImageItems(1),1,fr_per_phase(1),"Blood Pool 2")
+			End If
+		End If
+	End If
+
+	 '2 < 1  && 2 < 3
+	'	1 < 3
+	'	3 < 1
+	If tomp(1) < tomp(0) Then
+		If tomp(1) < tomp(2) Then
+			Set rawflow = Copy(ImageItems(1),"Raw Flow")
+			If tomp(0) < tomp(2) Then
+				Set bloodpool(0) = Reframe(ImageItems(0),1,fr_per_phase(0),"Blood Pool 1")
+				Set bloodpool(1) = Reframe(ImageItems(2),1,fr_per_phase(2),"Blood Pool 2")
+			else
+				Set bloodpool(0) = Reframe(ImageItems(2),1,fr_per_phase(2),"Blood Pool 1")
+				Set bloodpool(1) = Reframe(ImageItems(0),1,fr_per_phase(0),"Blood Pool 2")
+			End If
+		End If
+	End If
+
+	 '3 < 2 && 3 < 1 
+	'	2 < 1
+	'	1 < 2
+	If tomp(2) < tomp(1) Then
+		If tomp(2) < tomp(0) Then
+			Set rawflow = Copy(ImageItems(2),"Raw Flow")
+			If tomp(1) < tomp(0) Then
+				Set bloodpool(0) = Reframe(ImageItems(1),1,fr_per_phase(1),"Blood Pool 1")
+				Set bloodpool(1) = Reframe(ImageItems(0),1,fr_per_phase(0),"Blood Pool 2")
+			else
+				Set bloodpool(0) = Reframe(ImageItems(0),1,fr_per_phase(0),"Blood Pool 1")
+				Set bloodpool(1) = Reframe(ImageItems(1),1,fr_per_phase(1),"Blood Pool 2")
+			End If
+		End If
+	end if
+
+	'Reset the phase arrayinfomation datasets(1)  with the flow image.
+	retval = GetAttribValue(rawflow,"Dataset","PhaseDuration",phasedur(0),1)
+	retval = GetAttribValue(rawflow,"Dataset","PhaseFrameDuration",phasefrdur(0),1)
+	fr_per_phase(0) = phasedur(0) / phasefrdur(0)
+
+	'Get desired compression ratio from inputbox
+
+	Set mainScreen=CreateScreen("basic5.rt") 'Two view
+	number_of_vports = ListViewPorts(mainScreen,mainVP)
+	Display mainScreen
+
+	'Displaying the already acquired flow portion
+	Set bobVP(0) = GetViewport("cell1")
+	Clear bobVP(0)
+	Dim q As Double
+	VPFormat bobVP(0),7,8
+	Display rawflow,"cell1"
+	bobVP(0).Color = LINEAR
+	bobVP(0).LabelFormat = NONE_FORMAT
+
+	'Adjusting the window level to ensure it's seen...
+
+	If bobVP(0).WindowMax > 10 Then
+		bobVP(0).WindowMax = 10
+	End If
+
+	If fr_per_phase(0) > 61 Then
+		msgbox ("The uncompressed flow may not be completely displayed on this screen")
+	End If
+
+	retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ANNOT_TOOL,ROI_TOOL)
+
+	CompressAgain:
+	Clear bobVP(1)
+	Set bobVP(1) = GetViewport("cell2")
+	bobVP(1).LabelFormat = NONE_FORMAT
+	'deliberately left that color as different so that it is noticeable
+	store_time = phasefrdur(0)/1000
+	scratch = InputBox$("Type the number of frames you want to compress this by." & Chr(10) & Chr(13) & "Current time per frame is " & Str$(phasefrdur(0)/1000) & " sec" & Chr(10) & Chr(13) & "with " & fr_per_phase(0) & " frames.","Compress Flow")
+	' - compress stage 1
+	If scratch = "" Then
+		scratch = CDbl("1")
+	Else 
+		scratch = CDbl(scratch)    ' Changing it to an double, so it's not rounded
+	End If
+
+	'At this point, "phase 3" is a composite, so we can continue to use this field as a 
+	'scratchpad for phase durations, etc.
+
+	phasefrdur(2)= (phasefrdur(0)/1000)*scratch
+
+	i = (fr_per_phase(0)/6)/scratch
+	If i > 5 Then
+		i = 5
+		msgbox "The compressed view may be truncated to fit in the viewport" & Chr(10) & Chr(13) & "You can scroll the frames when we've finished processing."
+	End If
+
+	VPFormat bobVP(1),5,6
+
+	bob = " " & phasefrdur(2) & " sec/fr"
+	Set displayflow = ReframeStep(rawflow, scratch, scratch, bob)
+	Display displayflow,"cell2"
+	bobVP(0).LabelFormat = NONE_FORMAT
+
+	'Display and ask Is it good?
+	If (msgbox("Is the lower reframe good?",ebYesNo))=ebNo Then
+		Clear bobVP(1)
+		Goto CompressAgain
+	End If
+
+	'This is if the subroutine is invoked by pressing a button, in which case the 
+	'display routine wouldn't be automatically invoked.  Don't want to invoke it 
+	'*twice*, though, so checking to see if this value has already been set.
+
+	If processed_dyn = True Then
+		display_dyn
+	End If		
+
+	processed_dyn = True
+End Sub 	
+
+
+' ********************************************************************************************
+' *                     Display Dynamics
+' ********************************************************************************************
+
+Sub display_dyn
+	Dim ACRText(4) As Annot '1.3
+	'Just in case something goes horribly wrong
+	If processed_dyn = False Then
+		Exit Sub
+	End If
+
+	Set mainScreen=CreateScreen("brainflow.rt")  
+	' has only three viewports, a flow on top and 2 "spots" for the blood pool frames
+	number_of_vports = ListViewPorts(mainScreen,mainVP)
+	Display mainScreen
+
+
+	'display the two frames of the blood pool separately.
+	Display  displayflow, "cell0"
+	Display  bloodpool(0), "cell1"
+	Display  bloodpool(1), "cell2"
+
+
+	For i = 0 to 2
+		Set bobVP(i)=GetViewport("cell" & CStr(i))
+		mainVP(i).Color =  LINEAR
+		mainVP(i).LabelFormat = NONE_FORMAT
+	Next i
+
+	VPFormat bobVP(0),5,6
+	bobVP(1).LabelFormat = NUMBER_FORMAT
+
+	'Setting all the freaky annotations
+
+	Set titleVP = GetViewport("Title")
+	Set titleAnnot = AnnotText(titleVP,0.5,0.5,VERSION)
+
+	Set AnnoText(0) = AnnotText(bobVP(0),0,0.2,patientname & Chr(10) & Chr(13) & patientid,1)
+	Set AnnoText(1) = AnnotText(bobVP(0),0,0.2,CStr(seriesdate),6)
+	retval = GetAttribValue(displayflow, "Study", "AccessionNumber", dbval)
+	Set AnnoText(6) = AnnotText(bobVP(0),0,0.2,"ACC#: "&dbval,4)
+	If tech = "" Then
+		tech = InputBox$("Technologist initials, please.","Tech Initials")
+	End If
+	If (tech = "") = True Then
+		tech = "NO" & Chr(10) & Chr(13) & "TECHNOLOGIST" & Chr(10) & Chr(13) & "INITIALS" 
+	End If
+	'Begin 1.3
+	Set ACRText(0) = AnnotText(bloodpool(0),0,64,"R")  
+	Set ACRText(1) = AnnotText(bloodpool(1),0,64,"R")  
+	Set ACRText(2) = AnnotText(displayflow,0,50,"R",10)  
+	'End 1.3	
+	Set AnnoText(2) = AnnotText(bobVP(0),0,0.2,tech,3)
+	Set AnnoText(3) = AnnotText(bobVP(0),0,0.9,bob,25)
+	Set AnnoText(4) = AnnotText(bobVP(1),0,0.9,"Anterior blood pool images")
+	retval = GetAttribValue(bloodpool(1),"Dataset","PhaseDuration",phasedur(2),1)
+	Set AnnoText(5) = AnnotText(bobVP(2),0,0.9," " & phasedur(2)/1000 & " sec acquisition each")
+
+
+
+	retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ANNOT_TOOL,ROI_TOOL)
+
+	'set scroll_tool as selected tool, just in case.
+
+	retval=SetCurrentTool(SCROLL_TOOL)
+
+	For i=0 To number_of_vports - 1  ' 1.2 begin
+		mainVP(i).Color = LINEAR
+		If alreadydoneboss = True Then  
+			mainVP(i).WindowMax = bflow_results.windowing(i,1)
+			mainVP(i).WindowMin = bflow_results.windowing(i,2)
+			bflow_results.zoom(i) = mainVP(i).Zoom
+			bflow_results.pan(i,1) = mainVP(i).PanX
+			bflow_results.pan(i,2) = mainVP(i).PanY
+		End If        
+	Next i  ' end 1.2
+
+End Sub
+
+' ********************************************************************************************
+' *                     Save  - added 1.2
+' ********************************************************************************************
+
+Sub bflow_save
+	For i = 0 To number_of_vports - 1
+		if mainVP(i) is Nothing Then  ' if not defined, skip
+		Else
+			bflow_results.windowing(i,1)=mainVP(i).WindowMax
+			bflow_results.windowing(i,2)=mainVP(i).WindowMin
+			bflow_results.zoom(i) = mainVP(i).Zoom
+			bflow_results.pan(i,1) = mainVP(i).PanX
+			bflow_results.pan(i,2) = mainVP(i).PanY
+		End If
+	Next	  
+	For i = 0 To 1
+		retval = GetAttribValue(bloodpool(i),"Dataset","DatasetName",dbval) ' get the name of the image
+		Set bflow_results.bloodpool(i) = Copy(bloodpool(i),dbval) ' putting it in the saveresults
+	Next
+	Set bflow_results.rawflow = Copy(rawflow,"Raw Flow")
+	retval = GetAttribValue(displayflow,"Dataset","DatasetName",dbval) ' get the name of the image
+	Set bflow_results.displayflow = Copy(displayflow,dbval)
+	bflow_results.techinit = tech
+	SaveResults bflow_results,"BflowResults"
+	Set series1 = GetSeries(bflow_results.rawflow)
+		retval = GetAttribValue(bflow_results.rawflow,"Series","Modality",dbVal)
+		If dbVal = "OT" Then
+	 	 	reval = SetAttribValue(series1,"Modality","NM",1)
+			Save series1
+		End If	
+	msgbox "Results Saved."
+End Sub
+

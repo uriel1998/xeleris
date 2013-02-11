@@ -1,0 +1,22 @@
+str(3) as string ' scratch str
+scratch(1) As Variant 'variant scratch
+counter  As Int
+dbval As Variant
+done(2) As Boolean 
+study1 As Study
+Type Results									  
+	raw(3) As Image '(0 = 1st45, 1= 2nd45, 2 = whole thing)
+	compressed(3) As Image '(0 = 1st45, 1= 2nd45, 2 = whole thing)
+	extracted(4) As Image '(0=fr1, 1=fr45, 2=fr46, 3=fr90)
+	subtracted(3) As Image '(0 = 1-45, 1 = 46-90, 2= 1-90)
+	techinit As String
+	'windowing_compress(2,2) As Double  			' not sure how i can save this....
+	'windowing_big(4,2) As Double				' what with them being on different screens
+End Type		
+Dim gibleed_results As Results 
+Const VERSION	     As String = "v0.9a GI Bleed Protocol" 
+Dim Dyn_Labels(4)  As Annot
+
+
+
+Function process_dyn(input As Image, order as Integer)

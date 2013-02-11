@@ -1,0 +1,604 @@
+' ********************************************************************************************
+Rem  Version 1.8 Lung Protocol 24 Nov 2009
+Rem  by Steven Saus
+Rem  This protocol will process lung scans consisting of a XE inhalation with first breath,
+Rem  an optional CO57 transmission image, and six statics
+' ********************************************************************************************
+
+Const VERSION	     As String = "v1.8 Lung Protocol" 
+Dim titleVP As Viewport
+Dim titleAnnot As Annot
+
+' ********************************************************************************************
+Rem  Protocol Path:
+Rem  - Be able to swap image positions.
+Rem  - Quantification
+Rem  - Multiple pt entry handling (low on priority scale; shouldn't really be for VQ)
+
+' ********************************************************************************************
+'Added Version annotation to Title cell
+
+' ********************************************************************************************
+Rem History
+rem v1.8    - 24 Nov 2009
+'			- Added positional labeling for ACR; added institution ID check for ACR
+rem v1.7    - 19 Dec 2006
+'			- Removed requirement for Co57 image;  removed labeling for Co57 image if not used.
+rem v1.6	- 8 Aug 2005 
+'			- added modality change for results series
+Rem v1.5	- 30 Dec 2004
+'			- Added ability to save study with intensities, etc.
+Rem v1.4 	- 8 Aug 2004
+'			- Added check for accession # to help validate studies for PACS
+Rem v1.3 	- 16 Jun 2004
+Rem			- Added check for old SMV acquisition terminal using DSTornot variable
+Rem			- Added check for un-named old SMV acq. terminal displays using DSTornot variable
+Rem v1.2	- 2 April 2004
+Rem			- Added auto-adjustment for intensity of vent
+Rem			- Added check for previously compressed or snapshotted images from ADAC (ignores those)
+Rem			- Added a if = "" statement for the check for what frame vent starts
+Rem			- Added renaming protocol with error-checking
+Rem			- Added patient name and tech labeling
+Rem v1.1    - 29 March 2004
+Rem			- Added customizable 1st breath frame
+Rem         - differentiating vent images directly
+Rem         - Utilized VP declarations to work with images
+Rem         - Automated placement of perfusion images with error checking
+Rem         - Able to work with input from SMV protocol
+Rem         - Automated labeling
+Rem         - intensifying, de-intensifying, and background buttons
+Rem         - Label Tab and buttons
+Rem v1.0    - 8 March 2004
+Rem         - First build
+' ********************************************************************************************
+
+' ********************************************************************************************
+' *                     The Big Declarations
+' ********************************************************************************************
+
+Dim mainScreen       As Screen   'The main screen
+Dim mainVP()         As Viewport 'The viewports on the main screen
+Dim number_of_vports As Integer  'The number of viewports
+Dim perfVP(6)   As Viewport 'Static perfusion vp
+Dim co57VP  As Viewport 'Co57 VP
+Dim ventVP  As Viewport 'Vent VP
+Dim firstBreathVP As Viewport
+
+Dim MaxImages        As Integer
+Dim ImageItems()     As Image
+' I don't have any curves in here....
+'Dim MaxCurves        As Integer
+'Dim CurveItems()     As Curve       
+Dim retb As Boolean
+
+Dim i As Integer
+Dim copied As Integer
+Dim counted As Integer
+Dim perfnum As Integer
+Dim dbval     As Variant
+Dim DSTornot As Variant  ' To tell us whether or not it's from a DST system
+Dim scratch As Variant
+Dim scratch1 As Variant
+Dim scratch2 As Variant
+Dim tech As String
+Dim side As String '1.8
+
+
+Dim vent As Image
+Dim co57 As Image
+Dim perfusion(6) As Image
+Dim compress As Image
+Dim firstBreath As Image
+
+'Dim AnnoText(17) As Annot ' from 1.7 - adding 9 more for positional markers in 1.8
+Dim AnnoText(26) As Annot
+Type Results									  '1.5 begin
+	windowing(9,2) As Double
+	zoom(9) As Double
+	pan(9,2) As Double
+	rawvent As Image
+	vent	As Image
+	firstbreath	As Image
+	co57 As Image
+	perf(9) As Image
+	techinit As String
+	quant_post As Image 'not actively used yet
+	quant_roi(4) As Roi	'not actively used yet
+End Type											' 1.5 end
+Dim lung_results As Results '1.5
+Option Compare Text  ' turning off case sensitivity
+
+
+' ********************************************************************************************
+' *                     Data Validate
+' ********************************************************************************************
+
+
+Function  DataValidate(dv_Message       As String,_
+                       sel_image_list() As Image,_
+                   numImages        As Integer,_
+                   sel_curve_list() As Curve,_
+                   numCurves        As Integer) As Integer
+		Dim item      As Integer
+		Dim dbVal     As Variant
+		Dim series2 As Series ' 1.5
+        maxImages = 0
+        maxCurves = 0
+
+        For item = 0 To numImages-1
+		Set series2 = GetSeries(sel_image_list(item))  'begin 1.5
+		retval = GetAttribValue(series2,"Modality",dbval,1)  'begin 1.6
+		If dbval = "OT" Then
+			retval = SetAttribValue(series2,"Modality","NM",1)
+			Save series2
+		End If		'end 1.6
+       retval = GetAttribValue(series2,"InstitutionID",dbval,1) 'InstitutionID check begin 1.8
+        If dbval = "Miami Valley Hospital" Then  'Note the hard-coding of this variable!
+            'It's what I want - continue.
+            Save series2
+        Else
+            reval = SetAttribValue(series2,"InstitutionID","Miami Valley Hospital",1) 'Note the hard-coding of this variable!
+            Save series2
+        End If      'end 1.8
+		retval = GetAttribValue(series2,"SeriesID", dbval, 1)
+		If dbval Like "mvhboneResults*" Then   ' This means it doesn't try to load results until I call for 'em
+	Else			' end 1.5
+                MaxImages = MaxImages + 1
+                Redim Preserve ImageItems(MaxImages)
+                set ImageItems(item) = sel_image_list(item)
+        End If 		' 1.5
+	Next item
+  
+        For item = 0 To numCurves-1
+                MaxCurves = MaxCurves + 1
+                Redim Preserve CurveItems(MaxCurves)
+                set CurveItems(item) = sel_curve_list(item)
+        Next item
+        dv_Message = "No Error message"
+        DataValidate = 1
+End Function
+
+' ********************************************************************************************
+' *                     MAIN
+' ********************************************************************************************
+    
+Sub Main    
+	Dim study1 As Study
+	Dim already_done_boss As Boolean
+	
+	perfnum = 0	
+	already_done_boss = False
+	
+	' Checking for accession # - added 8/6/4
+	retval = GetAttribValue(ImageItems(0), "Study", "AccessionNumber", dbval)
+	If dbval = "" Then
+	'	Set img1 = ImageItems(0)
+	'	Load img1
+		Set study1 = GetStudy(ImageItems(0))
+		sName = InputBox("Enter an Accession Number", "Accession Number", dbVal)
+		accession_number_loop:
+		If (sName = "") = False Then
+			retval = SetAttribValue(study1, "AccessionNumber", sName, 1)
+		Else
+			sName = InputBox("You MUST enter an Accession Number", "Accession Number", dbVal)
+			goto accession_number_loop
+		End If
+		Save study1
+	End If
+	
+    Set mainScreen=CreateScreen("basic15.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+    retb =  SelectTools(True,SCROLL_TOOL,CINE_TOOL,ANNOT_TOOL,COLOURMAP_TOOL,ROI_TOOL)
+    
+'Loading results 
+already_done_boss = LoadResults(lung_results,"mvhLungResults") '[begin add 1.5]
+If already_done_boss = True Then 
+	If lung_results.rawvent Is Not Nothing Then
+		Set vent = Copy(lung_results.rawvent,"Raw Vent Data")
+	End If
+	If lung_results.vent Is Not Nothing Then
+		Set compress = Copy(lung_results.vent,"30sec/fr Vent")
+	End If
+	if lung_results.co57 Is Not Nothing Then
+		Set co57 = Copy(lung_results.co57,"Co57")
+	end if
+	if lung_results.firstbreath Is Not Nothing Then
+		set firstbreath = Copy(lung_results.firstbreath,"First Breath - 10sec")
+	end if
+	for i = 0 to 8
+		If lung_results.perf(i) Is Nothing Then
+	Else
+		 retval = GetAttribValue(lung_results.perf(i),"Dataset","DatasetName",dbval)
+		 Set perfusion(perfnum)= Copy(lung_results.perf(i),dbval)
+		 perfnum=perfnum+1   
+        End If
+	Next
+	tech = lung_results.techinit
+End If   '[end 1.5 add]
+side = "R" '1.8
+DSTornot = 0
+MaxImages = MaxImages-1             ' adjustment for the vagaries of the for-next loop
+if already_done_boss = False Then  '1.5 - we don't need to load other things if we've already got results.
+	For counter = 0 To MaxImages
+	    Load ImageItems(counter)
+	    retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetType",dbval)              
+	    If dbval = 8 Then  'It is dynamic, and therefore the vent
+		retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
+		' I don't want compressed images
+		If (dbval Like "*compress*") = False Then
+		    set vent=ImageItems(counter)
+		    retval = GetAttribValue(ImageItems(1),"Series","Manufacturing",dbval)
+		    If dbval Like "Numa*" Then 		' Is it from ADAC?
+			    DSTornot = 42
+		    End If
+		    retval = GetAttribValue(ImageItems(1),"Series","ManufacturerModel",dbval)
+		    If dbval Like "*Cam1_analog*" Then 	' The old SMV acquisition terminal	
+			DSTornot = 42				' This way I can catch both the ADAC and the old SMV terminal
+		    End If	
+		If DSTornot = 42 Then      'Then it's not SMV....
+			' This function allows the user to determine what frame the first breath is in
+			' This is not available for SMV due to the way it acquires the data
+			Set compress = ReframeStep(vent,3,3,"30sec/fr Vent")
+			Dim FrameInt As Integer
+			Dim Frame     As String                           
+			Frame = InputBox$("What frame is the first breath in?","Selection of First Breath Frame")
+			If Frame = "" Then
+			    FrameInt=1
+			Else
+			    FrameInt = CInt(Frame)
+			End If
+			FrameInt=FrameInt-1
+			FrameInt=FrameInt*10
+			Set firstBreath = ReframeComposite(vent,FrameInt,(FrameInt+10),"First Breath - 10sec") ' Getting our first Breath
+		   Else
+			set compress = ImageItems(counter)
+			Set firstBreath = ReframeComposite(vent,0.00,10.00,"First Breath - 10sec") ' Getting our first Breath
+		    End If
+		End If
+	    ElseIf dbval = 0 Then  'It's a static
+		retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
+		If dbval Like "*57*" Then   ' if it's our Co57 flood
+		    If (dbval Like "*_SS*") = False Then ' I don't want snapshots
+			Set co57 = ImageItems(counter)
+		    End If
+		ElseIf (dbval Like "*_SS*") = False Then ' I don't want snapshots
+		    Set perfusion(perfnum)=ImageItems(counter)
+		    perfnum=perfnum+1   
+		End If
+		dbval=0
+	    End If
+	Next counter
+	
+	MaxImages = MaxImages+1         'resetting MaxImages to the proper value
+End If  '1.5 
+'We'll have to add an additional test so that quant only will go through.
+If compress Is Nothing Then  ' Changed to "compress" 1.5
+   msgbox "I'm sorry, you did not select a vent picture."
+   msgbox "This protocol will now have an error, and not fulfill its purpose in life."
+End If
+
+copied = FormatScreen(mainScreen, "lung.rt")
+number_of_vports = ListViewPorts(mainScreen,mainVP)
+
+Rem Changing color to linear, taking off all those extra labels (hooray for top headers!
+
+    For i=0 To number_of_vports - 1
+      mainVP(i).LabelFormat = NONE_FORMAT
+      mainVP(i).Color =  LINEAR
+    Next
+
+'First loop, trying to match what we can.  First row - post, lpo, rpo, second row - and, rao, lao
+'Why is this so convoluted?  Because we have two different acq. protocols, not counting tech variance
+'It's separated out into separate IF...Then...Else statements on purpose;  if something's not
+'named appropriately, then it's gotta have a chance to recognize it after it's been renamed.
+
+Set ventVP = GetViewport("vent")
+Set firstBreathVP = GetViewport("firstbreath")
+Set co57VP = GetViewport("co57")
+
+' scratch is used for a temp label to relabel studies
+' scratch1 is used to make sure something isn't double-allocated (ANT and ANT PERF being to the same place)
+' scratch2 is used to make sure we keep track of which ones aren't eventually put in a frame
+
+
+For i=0 To perfnum-1
+    DSTornot = 0
+    retval = GetAttribValue(perfusion(i),"Dataset","DatasetName",dbval)
+    If dbval Like "W1*" Then 'Only matches when W1 is the /first/ part, as that terminal adds W1 to /everything/
+	DSTornot = 42
+    End If
+    If dbval Like "*image*" Then ' This is the "default" name of ADAC systems
+	DSTornot = 42
+    End If
+    If DSTornot = 42 Then
+	    Display perfusion(i),"vent"
+	    scratch = InputBox$("Image label "& dbval & "not recognized." & Chr(10) & Chr (13) & "It is displayed in the top viewport." & Chr(10) & Chr (13) & "What should it be named?","Renaming " & dbval)
+	    If (scratch = "") = False Then
+		dbval = scratch
+	    End If
+	    Clear ventVP
+    End If
+    If dbval Like "*post*" Then   
+    If (scratch1 Like "*post*") = False Then ' We've already got one, you see!
+            Display perfusion(i),"perf0"
+            Set perfVP(0) = GetViewport("perf0")
+            Set AnnoText(0) = AnnotText(perfVP(0),.1,.9,dbval)
+			Set AnnoText(17) = AnnotText(perfVP(0),.8,.5,side) 'Added label here for ACR - v1.8
+        scratch1 = scratch1 & " post "
+        scratch2 = scratch2 & " " & i
+    End If
+    End If
+    If dbval Like "*lpo*" Then   
+    If (scratch1 Like "*lpo*") = False Then ' We've already got one, you see!
+                Display perfusion(i),"perf1"
+                Set perfVP(1) = GetViewport("perf1")
+                Set AnnoText(1) = AnnotText(perfVP(1),.1,.9,dbval)
+				Set AnnoText(18) = AnnotText(perfVP(1),.8,.5,side) 'Added label here for ACR - v1.8
+            scratch1 = scratch1 & " lpo "
+        scratch2 = scratch2 & " " & i
+    End If
+    End If
+    If dbval Like "*rpo*" Then   
+    If (scratch1 Like "*rpo*") = False Then ' We've already got one, you see!
+                Display perfusion(i),"perf2"
+                Set perfVP(2) = GetViewport("perf2")
+                Set AnnoText(2) = AnnotText(perfVP(2),.1,.9,dbval)
+				Set AnnoText(19) = AnnotText(perfVP(2),.8,.5,side) 'Added label here for ACR - v1.8
+            scratch1 = scratch1 & " rpo "
+        scratch2 = scratch2 & " " & i
+    End If
+    End If
+    If dbval Like "*ant*" Then   
+    If (scratch1 Like "*ant*") = False Then ' ( I told them we've already got one! )
+                Display perfusion(i),"perf3"
+                Set perfVP(3) = GetViewport("perf3")
+                Set AnnoText(3) = AnnotText(perfVP(3),.1,.9,dbval)
+				Set AnnoText(20) = AnnotText(perfVP(3),.1,.5,side) 'Added label here for ACR - v1.8
+            scratch1 = scratch1 & " ant "
+        scratch2 = scratch2 & " " & i
+    End If
+    End If
+    If dbval Like "*rao*" Then   
+    If (scratch1 Like "*rao*") = False Then ' ( I told them we've already got one! )
+                Display perfusion(i),"perf4"
+                Set perfVP(4) = GetViewport("perf4")
+                Set AnnoText(4) = AnnotText(perfVP(4),.1,.9,dbval)
+				Set AnnoText(21) = AnnotText(perfVP(4),.1,.5,side) 'Added label here for ACR - v1.8
+            scratch1 = scratch1 & " rao "
+        scratch2 = scratch2 & " " & i
+    End If
+    End If
+    If dbval Like "*lao*" Then   
+    If (scratch1 Like "*lao*") = False Then ' ( I told them we've already got one! )
+                Display perfusion(i),"perf5"
+                Set perfVP(5) = GetViewport("perf5")
+                Set AnnoText(5) = AnnotText(perfVP(5),.1,.9,dbval)
+				Set AnnoText(22) = AnnotText(perfVP(5),.1,.5,side) 'Added label here for ACR - v1.8
+            scratch1 = scratch1 & " lao "
+        scratch2 = scratch2 & " " & i
+    End If
+    End If
+Next i
+
+' Second loop.  This is the one that sees if it was allocated in the loop above, using
+' scratch2 as a recordkeeper.  If not, it puts it in the first open space.  Can't do
+' this in the loop above, 'cause what if the unlabeled one is image 2 and it's put where
+' another image deserves to go?  :/
+
+For i=0 To perfnum - 1
+    If (scratch2 Like "*" & CStr(i) & "*") = False Then ' It wasn't put in a place
+                For counter=0 To 5  ' this is static - there's only six viewports
+                    If perfVP(counter) Is Nothing Then  ' If there's nothing there already
+                        Display perfusion(i),"perf" & CStr(counter)     'Display the image there
+                        Set perfVP(counter) = GetViewport("perf"& CStr(counter)) ' Apply the VP 
+                        Set AnnoText(counter) = AnnotText(perfVP(counter),.1,.9,dbval)
+                        counter=5       ' Need to make sure this will exit it properly
+                    End If  
+                Next counter                    
+    End If
+Next i
+
+If (co57 Is Nothing ) = False Then 
+	Display co57,"co57" 
+End If
+If (compress Is Nothing) = False Then
+	Display compress,"vent"
+
+'We use Xe133, and as a result, our patients get anywhere between 5 and 25 mCi of Xe with
+'the vent images - leading to a huge variation in the vent images.  I empirically found
+'a relationship between total counts and WindowMax that looked pretty good regardless
+'of total counts:  ~150kcnts=WindowMax of 40, ~300kcnts=WM of 80, ~600kcnts=WM of 160.  This
+'led to a relationship of 3750 kcnts : 1 WindowMax, which is what is determined in the
+'two lines below.  This may need to be altered with more empirical data.
+	retval = GetAttribValue(vent,"Dataset","DetectorCounts",dbval)              
+	ventVP.WindowMax = dbval/3750
+End If
+If (firstBreath Is Nothing) = False Then
+	Display firstBreath,"firstbreath"
+End If
+
+Set AnnoText(6) = AnnotText(firstBreathVP,.1,.9,"10 sec 1st Breath")
+Set AnnoText(22) = AnnotText(firstBreathVP,.8,.5,side) 'Added label here for ACR - v1.8
+If (co57 Is Nothing ) = False Then  ' added 1.7
+	Set AnnoText(7) = AnnotText(co57VP,.1,.9,"Co57")
+	Set AnnoText(23) = AnnotText(co57VP,.1,.5,side) 'Added label here for ACR - v1.8
+End If
+Rem displaying compressed dynamic properly
+VPFormat ventVP,2,4
+ventVP.LabelFormat = NUMBER_ONLY_FORMAT
+
+
+retval = GetAttribValue(ImageItems(1),"Series","Manufacturing",dbval)
+If dbval Like "Numa*" Then      'The ADAC value is Numa_Inc - SMV is null
+    Set AnnoText(9) = AnnotText(ventVP,.1,.95,"30 sec/fr",1)
+Else
+    Set AnnoText(8) = AnnotText(ventVP,.1,.95,"First Breath - first 10 sec",1)
+    Set AnnoText(9) = AnnotText(ventVP,.1,.1,"30 sec/fr",2)
+End If
+
+
+Set AnnoText(10) = AnnotText(ventVP,.1,.95,"Equilibrium",2)
+Set AnnoText(24) = AnnotText(ventVP,.9,.5,side) 'Added label here for ACR - v1.8
+Set AnnoText(11) = AnnotText(ventVP,.1,.95,"Washout----->",3)
+Set AnnoText(12) = AnnotText(ventVP,.1,.95,"---------->",4)
+
+'Getting tech initials
+
+If tech = "" Then
+    tech = InputBox$("Technologist initials, please.","Tech Initials","NO INITIALS")  '1.7, and moved AnnoText(13) outside of loop
+End If
+Set AnnoText(13) = AnnotText(ventVP,0,0.1,tech,3)                        
+
+
+'Getting patient name, id and date....   
+retval = GetAttribValue(ImageItems(1),"Patient","PatientName",scratch)
+retval = GetAttribValue(ImageItems(1),"Patient","PatientID",scratch1)
+retval = GetAttribValue(ImageItems(1),"Series","SeriesDate",scratch2)              
+
+Set AnnoText(14) = AnnotText(ventVP,0,0.1,scratch & Chr(10) & Chr(13) & scratch1,1)                        
+Set AnnoText(15) = AnnotText(ventVP,0,0.1,CStr(scratch2),4)                        
+Set AnnoText(16) = AnnotText(firstBreathVP,0,0.1,scratch & Chr(10) & Chr(13) & scratch1)                        
+
+Set titleVP = GetViewport("Title")
+Set titleAnnot = AnnotText(titleVP,0.5,0.5,VERSION)
+
+    
+Rem Turning on the GTOOLS - thank goodness I found this thing...
+retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ANNOT_TOOL)
+
+For i=0 To number_of_vports - 1  ' 1.5 begin
+	mainVP(i).Color = LINEAR
+	If already_done_boss = True Then  
+		mainVP(i).WindowMax = lung_results.windowing(i,1)
+		mainVP(i).WindowMin = lung_results.windowing(i,2)
+		lung_results.zoom(i) = mainVP(i).Zoom
+		lung_results.pan(i,1) = mainVP(i).PanX
+		lung_results.pan(i,2) = mainVP(i).PanY
+	End If        
+Next i  ' end 1.5
+    
+End Sub
+
+
+' ********************************************************************************************
+' *                     Intensify
+' ********************************************************************************************
+
+Rem - for a button to add intensification to a selected image
+
+Sub Intensify
+
+Dim cell as String
+Dim vp as Viewport
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.WindowMax=(vp.WindowMax * 0.6)
+End If
+End Sub
+
+' ********************************************************************************************
+' *                     DE-Intensify
+' ********************************************************************************************
+
+Rem - for a button to remove intensification from a selected image
+
+Sub DEIntensify
+
+Dim cell as String
+Dim vp as Viewport
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.WindowMax=(vp.WindowMax / 0.6)
+End If
+End Sub
+
+
+' ********************************************************************************************
+' *                     Background Up
+' ********************************************************************************************
+
+Rem - for a button to add bkgd counts
+
+Sub Bkgdup
+
+Dim cell as String
+Dim vp as Viewport
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.WindowMin=(vp.WindowMin + (vp.WindowMax / 10))
+End If
+End Sub
+' ********************************************************************************************
+' *                     Background Down
+' ********************************************************************************************
+
+Rem - for a button to remove bkgd counts
+
+Sub Bkgddn
+
+Dim cell as String
+Dim vp as Viewport
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.WindowMin=(vp.WindowMin - (vp.WindowMax/10))
+End If
+End Sub
+
+' ********************************************************************************************
+' *                     Save
+' ********************************************************************************************
+
+Sub lung_save
+		' Get window levels of all fields   '1.8.1 begin
+		for i = 0 To number_of_vports - 1
+			if mainVP(i) is Nothing Then  ' if not defined, skip
+			Else
+				lung_results.windowing(i,1)=mainVP(i).WindowMax
+				lung_results.windowing(i,2)=mainVP(i).WindowMin
+				lung_results.zoom(i) = mainVP(i).Zoom
+				lung_results.pan(i,1) = mainVP(i).PanX
+				lung_results.pan(i,2) = mainVP(i).PanY
+			End If
+		Next	  
+		For i = 0 To perfnum-1
+			retval = GetAttribValue(perfusion(i),"Dataset","DatasetName",dbval) ' get the name of the image
+			Set lung_results.perf(i) = Copy(perfusion(i),dbval) ' putting it in the saveresults
+		Next
+		Set lung_results.rawvent = Copy(vent,"Raw Vent Data")
+		Set lung_results.vent = Copy(compress,"30sec/fr Vent")
+		'  begin change 1.7
+		if lung_results.co57 Is Not Nothing Then   
+			Set lung_results.co57 = Copy(co57,"Co57")
+		end if
+		'  end change 1.7
+		Set lung_results.firstbreath = Copy(firstbreath,"First Breath - 10sec/fr")
+		lung_results.techinit = tech
+	SaveResults lung_results,"mvhLungResults"
+'		Changing modality of the results stuff
+		Dim series1 As series
+		Set series1 = GetSeries(lung_results.vent)
+		retval = GetAttribValue(lung_results.vent,"Series","Modality",dbVal)
+		If dbVal = "OT" Then
+	 	 	reval = SetAttribValue(series1,"Modality","NM",1)
+			Save series1
+		End If
+'END EDITING FOR MODALITY
+	msgbox "Results Saved."
+End Sub

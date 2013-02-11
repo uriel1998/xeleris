@@ -1,0 +1,64 @@
+***************************************************************************
+ Mod File Name : URIEL03.EBS          Mod Author: Steve Saus      Difficulty    : oooooooo**  [I code so you don't have to] 
+ Mod Date      : 9 Aug 2005    Creative Commons License: http://creativecommons.org/licenses/by-nc/1.0/
+ Files Affected: Any EBS	  Description   : Correct for "OT" modality error and change it to NM.
+*****************************************************************************
+Extended Description:
+
+Xeleris creates files with an OT modality, which PACS routinely classifies differently than NM studies.
+Why?  I have no idea.  This mod is a workaround that can help (somewhat).  Anything it loads that
+is of type OT will be transformed automagically into type NM.
+==========================================================================
+Disclaimer:
+	I didn't do it, no one saw me do it, and I'm sure as hell not
+	responsible for the stuff on your hard drive. This code has been tested on my install of Xeleris.
+==========================================================================
+STEP ONE:
+	Back up yer source!!!!!!!!  Don't become a statistic!
+==========================================================================
+STEP TWO:
+	Open the .ebs file you wish to modify in Aladdin.  
+
+==========================================================================
+STEP THREE:
+
+Find the DataValidate Function.  Add this declaration underneath the rest of them (obviously, change 
+"series2" if you have already used series2 as a variable:
+
+Dim series2 as series
+
+Then, go down a few lines until you're underneath the line:         For item = 0 To numImages-1
+Then add this section:
+' Begin block URIEL03
+		Set series2 = GetSeries(sel_image_list(item))  'Modality Check begin
+		retval = GetAttribValue(series2,"Modality",dbval,1)  
+		If dbval = "OT" Then
+			reval = SetAttribValue(series2,"Modality","NM",1)
+			Save series2
+		End If		
+' End block URIEL03
+		
+==========================================================================
+STEP FOUR:
+		
+If your function saves results, put this section right after you've saved the result series.  Change 
+"results_series.file" to a filename in your structure.
+
+' Begin block URIEL03		
+		'Changing modality of the results stuff
+		Dim series1 As series
+		Set series1 = GetSeries(results_series.file)
+		retval = GetAttribValue(results_series.file,"Series","Modality",dbVal)
+		If dbVal = "OT" Then
+	 	 	reval = SetAttribValue(series1,"Modality","NM",1)
+			Save series1
+		End If
+' End block URIEL03
+==========================================================================
+STEP FIVE:
+	Test.  You *do* have a couple of patient files hidden around for you to test things on, right?
+==========================================================================
+STEP SIX:
+	if (!(thismodder.straightedge))
+		pop_open_a_beer();
+==========================================================================

@@ -1,0 +1,1223 @@
+' ********************************************************************************************
+Rem  Version 1.8.6 Whole Body Protocol 9 Aug 2005
+Rem  by Steven Saus
+Rem  This protocol will display any WB image and up to 8 statics, and auto-level the second
+Rem  set of bone images.
+Rem  This protocol can also process 3-phase bone scans.
+Rem   NOTE THAT YOU MUST EDIT LINES 206 and 210 WITH THE APPROPRIATE INFORMATION!
+' ********************************************************************************************
+
+' ********************************************************************************************
+Rem KNOWN ISSUES
+'	Less than 2 wb images (ant and post) AND less than 2 statics AND no dynamics  will cause issues 
+'		when displaying due to label placement.
+' ********************************************************************************************
+
+Const VERSION	     As String = "v1.9 Whole Body Protocol" 
+Dim titleVP As Viewport
+Dim titleAnnot As Annot
+
+Rem - Step three - save masked images, display masked WB in lieu of non-masked?
+'I'm thinking saving ROI & then doing it that way... eek.
+
+Rem History
+rem v1.9    - 24 Nov 2009
+'			- Added positional labeling for ACR; added institution ID check for ACR
+Rem v1.8.6		- 8 Aug 2005
+'			- Added modality checks
+Rem v1.8.5a	- 1 Mar 2004
+'			- Fixed bug with save dynamic with no delay projection
+Rem v1.8.5	- 1 Feb 2004
+'		- Added way to add & save labels
+'		- Added accession # to auto-display
+'		- NOTED that masking doesn't work on dynamics
+Rem v1.8.1	- 28 Sep 2004
+'		- Removed background up & down (& buttons)
+'		- Added save wb images & settings (windowing, pan, zoom)
+'		- Added processing workaround (will preferentially load results instead of "new" data)
+'		- Added checks for already processed dynamic and wb sections
+'		- Added saving rotation for images (by rotating the VP after loading results)
+'		- Added error trap for hitting Dynamic button with no dyn images.
+'		- debug - save the wb, duh.  Don't use "saved" intensities if you don't have 'em.
+'		- debug - added check for resultimages only being used & getting patient info
+'		- debug - separated out two types of results completely to try to resolve problems.
+'		- debug - COPY images to saveresults, not ASSIGN.  No wonder I've had database problems!
+Rem v1.8.0.a  - 27 Sep 2004
+'		- added dynamic window level save in 2 axis matrix
+Rem v1.8.0	- 21 Sep 2004
+'		- Added save of dynamic results
+'		- Added framework for save of wb results
+'		- Added load of dynamic results			
+Rem v1.7	- 8 Aug 2004
+'		- Added accession # check for PACS implementation		
+Rem v1.6   	- 1 July 2004
+'		- Put in matrix reduction to try to improve output quality.
+'		- Identified known issue with too few images selected;  our imaging protocol would not be 
+'			satisified with so few images, so no action taken.
+Rem v1.5a 	- 18 Jun 2004
+'		- Put in option to deal with no WB images selected using countwb variable tests
+'		- Put in ability to just deal with dynamic images alone
+Rem v1.5    - 6 April 2004
+'		- Added version info to top of display
+'	    	- Added dynamic processing ability (detailed below - and more was added later)
+'		- Need to load dynamics into my own IMG files....
+'		- Fix labeling so I don't have tons and tons of things - just took out repeated calls
+Rem v1.4a   - 1 April 2004
+'		- Added ability to handle mixed patient studies with error checking
+'		- Added auto-tech-initialing
+'		- Added handling (or at least storing) of dynamic studies
+Rem v1.4    - 30 March 2004
+'		- Added masking ability
+'		- Fixed labeling problem
+Rem v1.3    - 29 March 2004
+'		- Changed VP handling to *my* definition of VP, instead of a jacked-up numbering
+'		- Changed imagemap (RT) labels to Unix programming numbering (0-2 = 3)
+'		- Added rotation ability to menu and button
+'		- Changed basic labeling to viewport instead of image
+'		- Changed labeling to a subroutine instead of inline
+'		- Moved nearly all Dim statements to global statements
+'		- Added Intensify & De-Intensify buttons and Bkgd buttons
+'		- Added Quit button
+Rem v1.2    - 24 March 2004
+'		- Added attributation to statics, removed zoom on statics for ADAC 
+'		- Changed differentation between SMV/ADAC using the Series -> Manufacturing label
+Rem v1.1    - 23 March 2004
+'		- adapted to deal with SMV protocol with zoom and pan differences
+'		- Discovered changes for SMV display of WB pictures
+'		- Added routine to discern between statics and WB regardless of position or order taken
+'		- Added routine to discern if from ADAC system or not
+'		- Cleared up code for displaying static images (coded as array)
+'		- Added error messages for wrong # of WB images picked ( <> 2 )
+Rem v1.0    - 8 March 2004
+'	- First build
+' ********************************************************************************************
+
+' ********************************************************************************************
+' *                     The Big Declarations
+' ********************************************************************************************
+
+Dim mainScreen       As Screen   'The main screen
+Dim mainVP()         As Viewport 'The viewports on the main screen
+Dim number_of_vports As Integer  'The number of viewports
+Dim wbVP(4)      As Viewport 'The WB viewports
+Dim staticVP(8) As Viewport
+Dim flowVP As Viewport
+Dim poolVP As Viewport
+Dim compareVP(3) As Viewport
+Dim series1 As series 
+Dim side As String '1.9
+Type ResultsDynamic									  '1.8 begin
+	dynamic_windowing(5,2) As Double
+	rotate(5) As Double
+	boneflow	As Image
+	bloodpool	As Image
+	compositeflow As Image
+	compositepool As Image
+	delayimage As Image
+	reframe_rate As Integer
+	techinit As String							  ' 1.8 end
+End Type
+
+Type ResultsWholeBody
+	wholebody_windowing(12,2) As Double
+	rotate(12) As Double
+	wholebody_pan(12,2) As Integer  	' save as x, y
+	wholebody_zoom(12) As Integer
+	wholebody_ant As Image			' 1.8.1
+	wholebody_post As Image			' 1.8.1
+	wb_static(8) As Image
+	techinit As String
+End Type
+'We don't currently have any curves at all, so this is commented out
+'Dim MaxCurves        As Integer
+'Dim CurveItems()     As Curve       
+
+Dim MaxImages        As Integer
+Dim ImageItems()     As Image
+
+Dim i as Integer
+Dim copied as Integer
+Dim wb_ant as Image
+Dim wb_post as Image
+Dim wb_2_ant as Image  ' copied WB
+Dim wb_2_post as Image ' copied WB
+Dim flow_raw as Image	' These four are for dealing with 3 phase bonescans
+Dim flow(3) as Image    ' For extracted phase 1 and blood pool and compress
+Dim comparsa(3) As Image
+'The rest are spots - don't care what they are, particularly as this protocol can handle up to 8 spots
+'Need to have this slightly awkward arrangement to help keep track of when we're done with them in loops.
+Dim Statics(8)       As Image  ' changed this to an array v 1.1
+
+Dim masked  As Image ' only space for one undo!
+Dim masktemp    As Image
+Dim ACRText(18) As Annot '1.9
+Dim usertext(30) As Annot '1.8.5
+Dim AnnoText(8) As Annot
+Dim Max As Double
+Dim wb_not(8) as Annot  'change to 8 in 1.8.5 to make room for acc#
+Dim SMV_ADAC As Integer  ' setting this to 0 for SMV and 1 for ADAC - v 1.1
+Dim counter As Integer
+Dim countwb As Integer
+Dim dbval As Variant
+Dim dbvalDYN As Variant 'Added 1.9 to carry name of dynamic comparison image between subroutines
+Dim retval As Integer
+Dim countstatic As Integer
+Dim processed_dyn As Integer
+
+Rem These are the patient info fields - the first in the array is the stored value, the
+Rem second is the comparison string to keep it from bugging people again and again.
+Dim patientname(2) As Variant  
+Dim patientid(2) As Variant
+Dim seriesdate As Variant
+Dim tech As String
+Dim countdyn As Integer
+Dim already_done_boss_dyn As Boolean	 '1.8
+Dim already_done_boss_wb As Boolean	 '1.8.1
+Option Compare Text  ' turning off case sensitivity
+Dim bone_results As ResultsDynamic  '1.8
+Dim wb_results As ResultsWholeBody '1.8.1
+Dim sName As Variant
+
+' ********************************************************************************************
+' *                     Data Validate
+' ********************************************************************************************
+
+Function  DataValidate(dv_Message       As String,_
+                       sel_image_list() As Image,_
+                   numImages        As Integer,_
+                   sel_curve_list() As Curve,_
+                   numCurves        As Integer) As Integer
+
+        Dim item      As Integer
+        Dim dbVal     As Variant
+        Dim retvali   As Integer
+	Dim series2 As Series ' 1.8
+
+        maxImages = 0
+        maxCurves = 0
+
+        For item = 0 To numImages-1
+	Set series2 = GetSeries(sel_image_list(item))  'Modality Check begin 1.8.6
+	retval = GetAttribValue(series2,"Modality",dbval,1)  
+	If dbval = "OT" Then
+		reval = SetAttribValue(series2,"Modality","NM",1)
+		Save series2
+	End If		'end 1.8.6
+    retval = GetAttribValue(series2,"InstitutionID",dbval,1) 'InstitutionID check begin 1.9
+	If dbval = "YOUR Hospital" Then  'Note the hard-coding of this variable!
+		'It's what I want - continue.
+		Save series2
+	Else
+		reval = SetAttribValue(series2,"InstitutionID","YOUR Hospital",1) 'Note the hard-coding of this variable!
+		Save series2
+	End If      'end 1.9
+	retval = GetAttribValue(series2,"SeriesID", dbval, 1)
+	If dbval Like "boneResults*" Then   ' This means it doesn't try to load results until I call for 'em
+	Else			' end 1.8
+                MaxImages = MaxImages + 1
+                Redim Preserve ImageItems(MaxImages)
+                set ImageItems(item) = sel_image_list(item)
+	End If ' 1.8
+        Next item
+  
+        For item = 0 To numCurves-1
+                MaxCurves = MaxCurves + 1
+                Redim Preserve CurveItems(MaxCurves)
+                set CurveItems(item) = sel_curve_list(item)
+        Next item
+        dv_Message = "No Error message"
+        DataValidate = 1
+End Function
+
+
+' ********************************************************************************************
+' *                     MAIN
+' ********************************************************************************************
+     
+Sub Main    
+    Set mainScreen=CreateScreen("basic15.rt")
+    number_of_vports = ListViewPorts(mainScreen,mainVP)
+    Display mainScreen
+    retb =  SelectTools(True,SCROLL_TOOL,CINE_TOOL,COLOURMAP_TOOL,ROI_TOOL)
+    Dim study1 As Study
+    Dim series1 As Series '1.8
+    Rem - ver 1.1 - Loading all images and testing available images for WB-ness
+    tech = ""
+	'this block moved in 1.8.1
+	seriesdate = 1
+	countstatic = 0
+	countwb = 0
+	SMV_ADAC=0  ' defaulting to SMV
+	patientname(0) = ""
+	countdyn = 0   ' Don't know if there's Dyn images
+
+	'Loading wb results 
+	already_done_boss_wb = LoadResults(wb_results,"boneResults_wb") '[begin add 1.8.1]
+	If already_done_boss_wb = True Then  '1.8.1
+		if wb_results.wholebody_ant Is Not Nothing Then
+			Set wb_ant = Copy(wb_results.wholebody_ant,"Anterior")
+			countwb = countwb +1
+		End If
+		if wb_results.wholebody_post Is Not Nothing Then
+			Set wb_post = Copy(wb_results.wholebody_post,"Posterior")
+			countwb = countwb +1
+		end if
+		for i = 0 to 7
+			If wb_results.wb_static(i) Is Nothing Then
+			Else
+				retval = GetAttribValue(wb_results.wb_static(i),"Dataset","DatasetName",dbval) ' get the name of the image
+				Set Statics(i) = Copy(wb_results.wb_static(i),dbval)
+				countstatic=countstatic +1
+			End If
+		Next
+		tech = wb_results.techinit
+	End If   '[end 1.8.1 add]
+
+	'Loading dynamic results
+	already_done_boss_dyn = LoadResults(bone_results,"boneResults_dyn") '[begin add 1.8]
+	If already_done_boss_dyn = True Then  '1.8
+		processed_dyn=True
+		countdyn = countdyn+1
+		Set flow(2) = Copy(bone_results.boneflow,"Compressed Flow")
+		Set flow(1) = Copy(bone_results.bloodpool,"Blood Pool")
+		tech = bone_results.techinit
+		Set comparsa(0) = Copy(bone_results.compositeflow,"Composite Flow")
+		Set comparsa(1) = Copy(bone_results.compositepool,"Composite Pool")
+		If bone_results.delayimage Is Nothing Then
+		Else
+			Set comparsa(2) = Copy(bone_results.delayimage,"Delay Image")
+		End If
+	End If   '[end 1.8 add (moved above main test in 1.8.1]
+
+
+	' Checking for accession # - added 8/6/4	[moved & expanded 1.8.1 to deal with "results only"]
+	If MaxImages = 0 Then
+ 		MaxImages = MaxImages+1
+		ReDim Preserve ImageItems(MaxImages)
+ 		If already_done_boss_dyn = True	Then
+			Set ImageItems(0) = Copy(flow(2))	
+		ElseIf already_done_boss_wb = True	Then
+			Set ImageItems(0) = Copy(wb_ant)
+		End If
+		retval = GetAttribValue(ImageItems(0),"Patient","PatientName",patientname(0))
+'		patientname(0)=dbval
+		retval = GetAttribValue(ImageItems(0),"Patient","PatientID",patientid(0))
+ '		patientid(0)=dbval
+		retval = GetAttribValue(ImageItems(counter),"Series","SeriesDate",seriesdate)              
+	End If
+
+	retval = GetAttribValue(ImageItems(0), "Study", "AccessionNumber", dbval)
+	If dbval = "" Then
+		Set study1 = GetStudy(ImageItems(0))
+		sName = InputBox("Enter an Accession Number", "Accession Number", dbVal)
+		accession_number_loop:
+		If (sName = "") = False Then
+			retval = SetAttribValue(study1, "AccessionNumber", sName, 1)
+		Else
+			sName = InputBox("You MUST enter an Accession Number", "Accession Number", dbVal)
+			goto accession_number_loop
+		End If
+		Save study1
+	Else 
+		sName = dbval
+	End If
+
+' This will only trigger if you are *adding in* images... hm.  This may be a problem - we'll
+' test it with the debugging process 1.8.1
+
+' Determines if it's got WB images, and if it's SMV or ADAC this whole routine is added v 1.1
+MaxImages = MaxImages-1             ' adjustment for the vagaries of the for-next loop
+    For counter = 0 To MaxImages
+        Load ImageItems(counter)
+	Set series1 = GetSeries(ImageItems(counter))  'begin 1.8   
+	retval = GetAttribValue(series1,"SeriesID", dbval, 1)  ' again, triple checking that it's not a results series.
+	If dbval Like "boneResults*" Then   ' we shouldn't actually have to clear anything;  DataValidate shoulda got it.
+		Clear ImageItems(counter)  ' This may cause a problem later... dunno.
+	Else  ' end 1.8
+		Rem - Testing to make sure all studies are really the same patient with tech input.
+		retval = GetAttribValue(ImageItems(counter),"Patient","PatientName",dbval)
+		If patientname(0) = ""	Then 'This is the first image with a name
+			patientname(0)=dbval
+			patientname(1)=dbval
+		Else
+			If (patientname(1) Like "*" & dbval & "*") = False Then  ' I think this test will work
+				i = MsgBox("Patient Names do not agree." & Chr(10) & Chr(13) & "Are " & patientname(0) & " & " & dbval & " the same patient?",ebYesNo)
+				If i = ebYes Then
+					patientname(1) = patientname(1) & " "& dbval
+				Else  	' Adding this confirmed entry to the search so you're not bothered again.
+					Exit Sub
+				End If
+			End If  ' end of abnormal pt name testing
+		End If  ' end of patientname testing
+		retval = GetAttribValue(ImageItems(counter),"Patient","PatientID",dbval)
+		If patientid(0) = ""  Then	'This is the first image with a name
+			patientid(0)=dbval
+			patientid(1)=dbval
+		Else
+			If (patientid(1) Like "*" & dbval & "*") = False Then  ' I think this test will work
+				i = MsgBox("Patient ID's do not agree." & Chr(10) & Chr(13) & "Are " & patientid(0) & " & " & dbval & " the same patient?",ebYesNo)
+				If i = ebNo Then
+					Exit Sub
+				Else  	' Adding this confirmed entry to the search so you're not bothered again.
+					patientid(1) = patientid(1) & " " & dbval
+				End If
+			End If
+		End If  ' end of checking patient ID
+		'Displaying the latest series date as the date
+		retval = GetAttribValue(ImageItems(counter),"Series","SeriesDate",dbval)              
+		If dbval > seriesdate Then
+			seriesdate = dbval
+		End If
+		retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetType",dbval)              
+		If dbval = 0 Then  'It's a static image - (value 0...)	
+			If already_done_boss_wb = False Then' 1.8.1 - we've already loaded results for this
+				Set Statics(countstatic) = ImageItems(counter)    ' copying static images to an array I've numbered				
+				countstatic = countstatic + 1 
+				dbval=50  	' This is a nonvalid number, by the by....
+			End If' 1.8.1
+		ElseIf dbval = 8 Then		' Put dynamic stuff here (value 8...)
+			If already_done_boss_dyn = False Then' 1.8.1 - we've already loaded results for this
+				processed_dyn = False
+				countdyn = countdyn + 1
+				Set flow_raw = ImageItems(counter)
+				dbval=50  	' This is a nonvalid number, by the by....
+			End If' 1.8.1
+		ElseIf dbval < 4 Then ' There are three WB types, value 1-3.  0 is already caught above.
+			If already_done_boss_wb = False Then' 1.8.1 - we've already loaded results for this
+				countwb = countwb + 1  ' testing for # of WB images
+				'These two values give a better clue as to what is ADAC and what is SMV 
+				'w/SMV, SerialNumber != NULL ; w/ADAC, Manufacturing != NULL (Numa_Inc)
+				'Here, we are just testing if it is from the ADAC, if not, we presume it is from SMV
+				 retval = GetAttribValue(ImageItems(0),"Series","Manufacturing",dbval)
+				 If dbval Like "Numa*" Then      'The ADAC value is Numa_Inc - SMV is null
+					 SMV_ADAC=1
+				 End If
+				 retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval) ' Is it ant or post?
+				 If dbval Like "*ANT*" Then
+					Set wb_ant = ImageItems(counter)
+				 Else
+					 Set wb_post = ImageItems(counter)               
+				 End If
+				 dbval=50  	' This is a nonvalid number, by the by....
+			End If  ' 1.8.1
+		 End If  ' finished sorting out types.  Sheesh.
+	End If ' 1.8  - the test to make sure it wasn't a result set.
+Next    
+
+If tech = "" Then
+	tech = InputBox$("Technologist initials, please.","Tech Initials")
+	bone_results.techinit = tech   '1.8
+	wb_results.techinit = tech		'1.8.1
+End If
+
+' This is where I need to put the bit for processing WB images and doing the matrix conversion.
+' We'll call a subroutine, and then simply have it reassign wb_ant and wb_post when it's selected properly.
+' Or we could just write it in place here, so that tweaking's not possible...
+' If matrix is > 512x1024 (how the f are we going to get that?)
+If countwb > 1 Then
+	If already_done_boss_wb = False Then' 1.8.1 - we've already loaded results for this
+		Dim matrix_size(2) As Variant
+		retval = GetAttribValue(wb_ant,"Dataset","MatrixSizeX",matrix_size(0))
+		retval = GetAttribValue(wb_ant,"Dataset","MatrixSizeY",matrix_size(1))
+		If matrix_size(0) > 256 Then  ' Probably not been processed, or not big enough to be a big deal
+			If matrix_size(1) > 1024 Then ' Ditto the above line
+				Set mainScreen=CreateScreen("bone_4spots.rt") 
+				number_of_vports = ListViewPorts(mainScreen,mainVP)
+				Display mainScreen
+				For i=0 To number_of_vports - 1
+					Clear mainVP(i)
+				Next i
+				Display wb_ant, "cell0"
+				Display wb_post, "cell2"
+				If (msgbox("Would you like to have me auto-adjust the matrix for image quality?",ebYesNo))=ebYes Then
+					Dim factor As Variant
+					Dim red_matrix_ant As Image
+					Dim red_matrix_post As Image
+					
+					factor = 1024/matrix_size(1)
+					reduction_loop_factor:
+					If (matrix_size(0) * factor < 256) Then  'If this makes the matrix too small
+						msgbox ("Adjusting reduction factor...")
+						factor = factor/2
+						Goto reduction_loop_factor
+					End If
+					Set red_matrix_ant = Magnify(wb_ant, factor, BICUBIC, TRUE, "Anterior WB")
+					Set red_matrix_post = Magnify(wb_post, factor, BICUBIC, TRUE, "Posterior WB")
+					Display red_matrix_ant, "cell1"
+					Display red_matrix_post, "cell3"
+					If (msgbox("Do you want to keep these images?",ebYesNo))=ebYes Then
+						Set wb_ant = red_matrix_ant
+						Set wb_post = red_matrix_post
+					End If
+				End If  ' End of Matrix Tweaking.
+			End If  ' End of Is the Y big enough?
+		End If ' End of the Is the X big enough
+	End If ' 1.8.1 - we've already loaded results for this
+End If ' End of Are there Whole Body?
+
+MaxImages = MaxImages+1         'resetting MaxImages to the proper value
+countstatic = countstatic - 1   'countstatic should be equal to # of static images in 0++ numbering (eg 2 statics are 0 & 1 )
+
+Rem Error messages v 1.1
+
+If countwb < 2 Then
+    msgbox "No Whole Body Images have been selected."
+End If
+If countwb > 2 Then 
+    msgbox "There should only be 2 WB images selected."
+End If          
+
+Set mainScreen=CreateScreen("basic15.rt")
+number_of_vports = ListViewPorts(mainScreen,mainVP)
+Display mainScreen
+retb =  SelectTools(True,SCROLL_TOOL,CINE_TOOL,COLOURMAP_TOOL,ROI_TOOL)
+
+Rem Copying bones for second set of images
+If countwb = 2  Then      
+	Set wb_2_ant = Extract(wb_ant,1,1,"Anterior_Intense") 
+	Display wb_2_ant,"cell15"
+	    
+	Set wb_2_post = Extract(wb_post,1,1,"Posterior_Intense") 
+	Display wb_2_post,"cell16"
+End If
+
+Rem - DatasetType should be an variable value - 0 For Static, 1-3 For WB
+Rem - DatasetStudyID should be a string - perhaps we can use that to sort between vision and ADAC
+Rem - gets study id -   retval = GetAttribValue(ImageItems(0),"Study","StudyID",dbval)
+Rem - gets image name - retval = GetAttribValue(ImageItems(0),"Dataset","DatasetName",dbval)
+Rem - gets image TYPE - 0 is static, 1-3 is WB 
+
+If countstatic > 0 Then
+	'Display moved to DisplayMain
+	DisplayMain
+ElseIf countwb > 0 Then
+	DisplayMain
+ElseIf countdyn > 0 Then   ' There are Dyn Images present
+	Dynamics
+End If
+
+End Sub
+
+
+' ********************************************************************************************
+' *                     Rotation
+' ********************************************************************************************
+
+Sub rotate
+Dim cell as String
+Dim vp as Viewport
+
+'Set outputImage = Rotate(inputImage, angle [, outputName])
+'Assuming I'm able to save rotations.... eeek.
+' I think that to be able to do that, I would have to actually put something in to say
+' Okay, what viewport did you get - (which section am i in anyway) and what image is that suppoed to be
+'and then go from there.  Eeek.
+
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.rotation=90+vp.rotation
+End If
+
+' This is no longer needed because I'm using vp labeling instead of image labeling.    
+'Labeling  ' to make sure labels are correctly placed
+
+End Sub
+
+' ********************************************************************************************
+' *                     Intensify
+' ********************************************************************************************
+
+Rem - for a button to add intensification to a selected image
+
+Sub Intensify
+
+Dim cell as String
+Dim vp as Viewport
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.WindowMax=(vp.WindowMax * 0.6)
+End If
+End Sub
+
+' ********************************************************************************************
+' *                     DE-Intensify
+' ********************************************************************************************
+
+Rem - for a button to remove intensification from a selected image
+
+Sub DEIntensify
+
+Dim cell as String
+Dim vp as Viewport
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+Else
+    vp.WindowMax=(vp.WindowMax / 0.6)
+End If
+End Sub
+
+
+' ********************************************************************************************
+' *                     Labeling (for main screen)
+' ********************************************************************************************
+Sub Labeling
+	'   Adding labels - we'll see if this works the way I want it to...
+	side = "R" '1.9
+	Rem - added v1.2 - annotation for WB images - hardcoded labels
+	If countwb > 1 Then 'there's at least two whole body images
+		Set wb_not(0) = AnnotText(wbVP(0),0,1,"Anterior")
+		Set wb_not(1) = AnnotText(wbVP(1),0,1,"Anterior_Intense")
+		Set wb_not(2) = AnnotText(wbVP(2),0,1,"Posterior")
+		Set wb_not(3) = AnnotText(wbVP(3),0,1,"Posterior_Intense")                        
+		Set wb_not(4) = AnnotText(wbVP(0),0,0.025,patientname(0)& Chr(10) & Chr(13) & patientid(0))                        
+		Set wb_not(5) = AnnotText(wbVP(3),0,0.025,CStr(seriesdate))
+		Set ACRText(0) = AnnotText(wbVP(0),0,0.5,side)  '1.9
+		Set ACRText(1) = AnnotText(wbVP(1),0,0.5,side)	'1.9
+		Set ACRText(2) = AnnotText(wbVP(2),.9,0.5,side)	'1.9
+		Set ACRText(3) = AnnotText(wbVP(3),.9,0.5,side)	'1.9		
+	Else
+		'Set ACRText(0) = AnnotText(wbVP(0),0,0.5,side)	'1.9
+		'Set ACRText(1) = AnnotText(wbVP(1),0,0.5,side)	'1.9
+		Set wb_not(4) = AnnotText(staticVP(0),0,0.025,patientname(0)& Chr(10) & Chr(13) & "MRN: " & patientid(0))                        
+		Set wb_not(5) = AnnotText(staticVP(1),0,0.025,CStr(seriesdate))                        
+	End If
+	If tech = "" Then
+		tech = InputBox$("Technologist initials, please.","Tech Initials")
+	End If
+	If tech = "" Then
+		tech = "No technologist initials entered."   ' 1.8.5
+	Else
+		If countwb < 2 Then  ' no wb images
+			Set wb_not(6) = AnnotText(staticVP(0),0,0.25,tech)
+			Set wb_not(7) = AnnotText(staticVP(0),0,0.25,Chr(10)&Chr(13)& "ACC#: " & sName)' 1.8.5
+		Else
+			Set wb_not(6) = AnnotText(wbVP(2),0,0.025,tech)                        
+			Set wb_not(7) = AnnotText(wbVP(1),0,0.025,Chr(10)&Chr(13)& "ACC#: " & sName)' 1.8.5
+		End If
+	End If
+	For i = 0 To countstatic
+		retval = GetAttribValue(Statics(i),"Dataset","DatasetName",dbval)
+		'Start 1.9 - I'm trying to match as many of our typical spots as possible here to take the paperpushing elements off us.
+		If dbval Like "ANT*" Then		
+			Set ACRText(4+i) = AnnotText(staticVP(i),0,0.5,side)	
+		Elseif dbval Like "*RAO*" Then
+			Set ACRText(4+i) = AnnotText(staticVP(i),0,0.5,side)	
+		Elseif dbval Like "*LAO*" Then
+			Set ACRText(4+i) = AnnotText(staticVP(i),0,0.5,side)	
+		Elseif dbval Like "POST*" Then
+			Set ACRText(4+i) = AnnotText(staticVP(i),0.9,0.5,side)	
+		Elseif dbval Like "*LPO*" Then
+			Set ACRText(4+i) = AnnotText(staticVP(i),0.9,0.5,side)	
+		Elseif dbval Like "*RPO*" Then
+			Set ACRText(4+i) = AnnotText(staticVP(i),0.9,0.5,side)	
+		Elseif dbval Like "*SKULL*" Then    'e.g.  Lateral Skull
+			Set ACRText(4+i) = AnnotText(staticVP(i),0.9,0.5,"ANT")	
+		Elseif dbval Like "*PELVIS*" Then    'e.g.  Lateral Pelvis
+			Set ACRText(4+i) = AnnotText(staticVP(i),0.9,0.5,"ANT")	
+		Elseif dbval Like "LT*" Then    'e.g.  LT MED RT LAT
+			Set ACRText(4+i) = AnnotText(staticVP(i),0.9,0.5,side)	
+		Elseif dbval Like "RT*" Then	'e.g   RT MED LT LAT
+			Set ACRText(4+i) = AnnotText(staticVP(i),0,0.5,side)			
+		Elseif dbval Like "PLANT*" Then	'e.g   PLANTAR
+			Set ACRText(4+i) = AnnotText(staticVP(i),0,0.5,side)	
+		End If  ' End 1.9
+		Set AnnoText(i) = AnnotText(staticVP(i),0,.9,dbval)
+		AnnoText(i).Font=SMALL_FONT
+	Next
+
+End Sub
+
+' ********************************************************************************************
+' *                     Masking
+' ********************************************************************************************
+Sub MaskSelected
+	Rem - for masking an area in a cell - not sure if my string setting is right
+
+	Dim vp As Viewport
+	Dim tmpimage As Image
+	Dim scratchimage As Image
+	Dim maskimage As Image
+	Dim imagename As Variant
+	Dim a As Integer ' loop counter
+	Dim roi0    As ROI
+	Dim zoom As Double
+	Dim panY As Double
+	Set vp = GetSelectedViewport()
+	If vp Is Nothing Then
+		msgbox "No image was selected."
+		Exit Sub
+	End If
+	zoom = vp.Zoom
+	panY = vp.PanY
+	If vp.Label Like "cell*" Then   ' The wb cells are named, duh, cell[#]
+		For a = 0 to 1  ' loop through here to fix the intensified images
+		Select Case CInt(Right(vp.Label,1))
+			Case 3
+				msgbox "Draw your ROI on the normal intensity image"
+				set vp = GetViewport("cell2")
+			Case 2
+				imagename = wb_post
+			Case 1
+				msgbox "Draw your ROI on the normal intensity image"
+				set vp = GetViewport("cell0")
+			Case 0
+				imagename = wb_ant
+		End Select
+		Next a
+	Else
+		imagename = Statics(CInt(Right(vp.Label,1)))   ' Just getting the imagename
+	End If  
+	Set tmpimage = imagename
+	set roi0 = ROIDefine(vp.Label,"Draw the ROI to be extracted",IRREGULAR,a,"Extract") ' drawing the ROI
+	If a = 1 Then               'Making sure the ROI button was OK
+		MsgBox "Must draw an ROI to mask"
+		Exit Sub
+	Elseif  a = 2 Then
+		MsgBox "Must keep ROI within viewport"
+		Exit Sub
+	End If
+	set maskimage = Mask(tmpimage,roi0,TRUE)
+	Display maskimage,vp.Label
+	vp.Zoom = zoom
+	vp.PanY = panY
+	a = MsgBox ("Is this masking OK?",ebYesNo)
+	If a = ebNo Then
+		Display tmpimage,vp.Label
+		vp.Zoom = zoom
+		vp.PanY = panY
+		Delete roi0
+		Labeling
+		Exit Sub
+	End If
+	'copying masked wb images and reintensifying the second copy
+	If vp.Label Like "*ll0" Then        ' is wb_ant
+		Display maskimage,"cell1"
+		wbVP(1).WindowMax=(wbVP(0).WindowMax * 0.6)
+		wbVP(1).Zoom = zoom
+		wbVP(1).PanY = panY
+	ElseIf vp.Label Like "*ll2" Then
+		Display maskimage,"cell3"
+		wbVP(3).WindowMax=(wbVP(2).WindowMax * 0.6)
+		wbVP(3).Zoom = zoom
+		wbVP(3).PanY = panY
+	End If
+	Delete roi0
+	Labeling
+End Sub
+
+' ********************************************************************************************
+' *                     Dynamic Images (display)
+' ********************************************************************************************
+
+Sub Dynamics
+	side = "R" '1.9
+	Dim Dyn_Labels(3) As Annot
+	If countdyn > 0 Then  ' added 1.8.1
+		If processed_dyn = False Then
+			process_dyn
+		End If
+		Set mainScreen=CreateScreen("3_phase_review.rt") 'Nineview
+		number_of_vports = ListViewPorts(mainScreen,mainVP)
+		Display mainScreen
+		For i=0 To number_of_vports - 1
+			Clear mainVP(i)
+		Next i
+		
+		Set flowVP = GetViewport("flow")
+		Set poolVP = GetViewport("blood_pool")
+		
+		If (flow(2) Is Nothing) = False Then
+			VPFormat flowVP,4,4
+			Display flow(2),"flow"
+		End If
+		If (flow(1) Is Nothing) = False Then
+			VPFormat poolVP,3,3
+			Display flow(1),"blood_pool"
+		End If
+		
+		'Awkward, yes.  But it's not working the way I wrote it, and I'm too tired to figure it out.
+		'Ditto with 1.9 revisions.  Oh well, kludge away.
+		'Adding process to determine projection;  this will be used to determine placement of R marker throughout dynamic images.
+		'We only flow ANT, POST, and PLANTAR.  We do not flow laterals here; see ~ line 610 to figure out how to add other views.
+		'I had a much more elegant-seeming way to do this, but it kept arguing with me, hence the kludge.
+
+		for i=0 to 2
+			If (comparsa(i) Is Nothing) = False Then
+				Select Case i
+					Case 2
+						Display comparsa(2) , "comp2"
+						If dbvalDYN Like "POST*" Then		'Start 1.9  (I don't know why these are in pixels. )
+							Set ACRText(13) = AnnotText(comparsa(2),220,128,side)  '1.9
+						Else
+							Set ACRText(13) = AnnotText(comparsa(2),0,128,side)  '1.9
+						End If  ' End 1.9		
+					Case 1
+						Display comparsa(1) , "comp1"
+						If dbvalDYN Like "POST*" Then		'Start 1.9
+							Set ACRText(14) = AnnotText(comparsa(1),115,64,side)  '1.9
+						Else
+							Set ACRText(14) = AnnotText(comparsa(1),0,64,side)  '1.9
+						End If  ' End 1.9		
+					Case 0
+						Display comparsa(0) , "comp0"
+						If dbvalDYN Like "POST*" Then		'Start 1.9
+							Set ACRText(15) = AnnotText(comparsa(0),115,64,side)  '1.9
+						Else
+							Set ACRText(15) = AnnotText(comparsa(0),0,64,side)  '1.9
+						End If  ' End 1.9		
+				End Select
+			End If
+		Next i
+		For i=0 To number_of_vports - 1
+			mainVP(i).Color = LINEAR
+			mainVP(i).LabelFormat = PARTIAL_FORMAT
+			If already_done_boss_dyn = True Then  '1.8.0a add begin
+				mainVP(i).WindowMax = bone_results.dynamic_windowing(i,1)
+				mainVP(i).WindowMin = bone_results.dynamic_windowing(i,2)
+				mainVP(i).rotation = bone_results.rotate(i)
+			End If        ' end 1.8.0.a add.
+		Next i
+		Set Dyn_Labels(0) = AnnotText(flowVP,0,0.1,patientname(0)& Chr(10) & Chr(13) & patientid(0),1)                        
+		Set Dyn_Labels(1) = AnnotText(poolVP,0,0.1,CStr(seriesdate),3)                        
+		If dbvalDYN Like "POST*" Then		'Start 1.9
+			Set ACRText(16) = AnnotText(flowVP,0.9,0.5,side) 	'1.9
+			Set ACRText(17) = AnnotText(poolVP,0.9,0.5,side)  '1.9
+		Else
+			Set ACRText(16) = AnnotText(flowVP,0,0.5,side) 	'1.9
+			Set ACRText(17) = AnnotText(poolVP,0,0.5,side)  '1.9
+		End If  ' End 1.9		
+		If (tech = "") = False Then
+			Set Dyn_Labels(2) = AnnotText(flowVP,0,0.1,tech,4)                        
+		End If
+		
+			retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ROI_TOOL)
+		
+		Set titleVP = GetViewport("Title")
+		Set titleAnnot = AnnotText(titleVP,0.5,0.5,VERSION)
+	End If
+
+End Sub
+
+' ********************************************************************************************
+' *                     Dynamic Images (process)
+' ********************************************************************************************
+
+Sub process_dyn
+
+Dim phasenum As Variant
+Dim phasedur(3) As Variant
+Dim phasefrdur(3) As Variant
+Dim fr_per_phase(3) As Integer
+Dim scratch As Variant
+Dim bobVP(9) As Viewport
+Dim bobtext(9) As Annot
+
+'Get # phases from database NumPhases (Long)
+retval = GetAttribValue(flow_raw,"Dataset","NumPhases",phasenum)              
+'phasenum is not in C numbering, so adjusting here for loops and stuff
+Rem phasenum = phasenum - 1
+
+For i = 1 To phasenum
+	'Get PhaseDuration from database PhaseDuration (array 3)
+	retval = GetAttribValue(flow_raw,"Dataset","PhaseDuration",phasedur(i),i)
+	'Get PhaseFrameDuration from database PhaseFrameDuration(array 3)
+	retval = GetAttribValue(flow_raw,"Dataset","PhaseFrameDuration",phasefrdur(i),i)
+Next i
+
+'Get #fr(phase) = PD(x)/PFD(x)
+For i=1 To phasenum
+	fr_per_phase(i-1) = phasedur(i) / phasefrdur(i)
+Next i
+
+'	     - extract stage 1
+Set flow(0) = Extract(flow_raw,1,fr_per_phase(0),"flow_uncompressed")
+'	     - extract stage 2 & copy to save structure
+Set flow(1) = Extract(flow_raw,(fr_per_phase(0)+1),(fr_per_phase(0) + fr_per_phase(1)),"blood_pool")
+Set bone_results.bloodpool=Copy(flow(1),"Blood Pool")  ' 1.8
+'	     - compress stage 1 into composite & copy to save structure
+Set comparsa(0) = Reframe(flow_raw,1,fr_per_phase(0),"Flow Composite") 
+Set bone_results.compositeflow=Copy(comparsa(0),"Composite Flow")  ' 1.8
+'	     - compress stage 2 into composite & copy to save structure
+Set comparsa(1) = Reframe(flow_raw,(fr_per_phase(0)+1),(fr_per_phase(0) + fr_per_phase(1)),"Blood Pool Composite") 
+Set bone_results.compositepool=Copy(comparsa(1),"Composite Pool")   '1.8
+
+'	     - select the appropo delay image
+Set mainScreen=CreateScreen("basic4.rt") 'Nineview
+number_of_vports = ListViewPorts(mainScreen,mainVP)
+Display mainScreen
+For i=0 To number_of_vports - 1
+	Clear mainVP(i)
+Next i
+Dim bob As String
+
+' I have two loops here, and I'm not quite sure why it's requiring me to do so, but damn it, it's working now,
+' so I'm not going to mess with it.  First displays the statics, second formats them with the big number in the middle
+
+For i=0 To countstatic
+	bob = "cell" & CStr(i+1)
+	Display Statics(i),bob
+	Set bobVP(i) = GetViewport(scratch)
+Next i
+
+For i=0 To countstatic
+	mainVP(i).Color = LINEAR
+ 	mainVP(i).LabelFormat = NUMBER_FORMAT
+	bob = CStr(i+1)
+	Set bobtext(i) = AnnotText(mainVP(i),0.5,0.5,bob)
+	bobtext(i).Font = LARGE_FONT
+Next i
+
+scratch = InputBox$("Type the number of the delay that matches the flow." & Chr(10) & Chr(13) & "Hit ENTER if no matching delay.","Match Delay Image With Flow")
+If (scratch = "") = False Then
+	i = CInt(scratch) - 1
+	retval = GetAttribValue(Statics(i),"Dataset","DatasetName",dbvalDYN) '1.9 storing name of delay for labeling
+	Set comparsa(2) = Statics(i)  ' We have our delay image! - save it in the line below 
+	Set bone_results.delayimage=Copy(comparsa(2),"Delay Image")  '1.8
+End If
+
+' 	     - Get desired compression ratio from inputbox
+Set mainScreen=CreateScreen("basic5.rt") 'Two view
+number_of_vports = ListViewPorts(mainScreen,mainVP)
+Display mainScreen
+
+'Displaying the already acquired flow portion
+Set bobVP(0) = GetViewport("cell1")
+Clear bobVP(0)
+Dim q As Double
+i = fr_per_phase(0)\4
+If i > 8 Then
+	i = 8
+	msgbox "The non-compressed view may be truncated to fit in the viewport"
+End If
+VPFormat bobVP(0),i,4
+Display flow(0),"cell1"
+bobVP(0).Color = LINEAR
+bobVP(0).LabelFormat = NONE_FORMAT
+'Look, the damn things are too dim.  This way you'll be sure to see it.  Also corrects for those 
+'idiots who don't use a marker and so I can't use a dividing thing here.
+bobVP(0).WindowMax = 5
+
+retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ROI_TOOL)
+
+CompressAgain:
+Clear bobVP(1)
+Set bobVP(1) = GetViewport("cell2")
+bobVP(1).LabelFormat = NONE_FORMAT
+'deliberately left that color as different so that the damn thing is noticeable
+
+scratch = InputBox$("Type the number of frames you want to compress this by." & Chr(10) & Chr(13) & "Current time per frame is " & phasefrdur(1)/1000 & " sec.","Compress Flow")
+' - compress stage 1
+If scratch = "" Then
+	scratch = 1
+Else 
+	scratch = CInt(scratch)    ' Changing it to an integer
+End If
+
+'Copying the compression factor here;  it should be overwritten if reprocessed.
+bone_results.reframe_rate=scratch  ' 1.8
+
+i = (fr_per_phase(0)/4)/scratch
+If i > 8 Then
+	i = 8
+	msgbox "The compressed view may be truncated to fit in the viewport" & Chr(10) & Chr(13) & "I recommend compressing more."
+End If
+
+VPFormat bobVP(1),i,4
+
+phasefrdur(0) = (phasefrdur(1)/1000) * scratch 
+
+bob = " " & phasefrdur(0) & " sec/fr"
+Set flow(2) = ReframeStep(flow(0), scratch, scratch, bob)
+Display flow(2),"cell2"
+bobVP(0).LabelFormat = NONE_FORMAT
+
+'Display and ask Is it good?
+If (msgbox("Is the lower reframe good?",ebYesNo))=ebNo Then
+	Clear bobVP(1)
+	Goto CompressAgain
+End If
+'Copying reframed to save structure
+Set bone_results.boneflow=Copy(flow(2),"Compressed Flow")  ' 1.8
+If processed_dyn = True Then
+	Dynamics
+End If		
+
+processed_dyn = True
+End Sub 	
+
+' ********************************************************************************************
+' *                     Add_Label   1.8.5
+' ********************************************************************************************
+Sub AddLabel
+'This sub is for additional labeling other than the default - defaults to bringing up an "R", but
+'can be used for anything - 2 hr, 24 hr, etc.  We also removed the annotation tool from the options 
+'at this point, because, well, I want them to use this button.  I'm not sure that I have to explicitly
+'allocate memory for each of these annotations, but to ensure that we do not run afoul of anything, 
+'I have made a huge (for me) array (20) of Annot objects. 
+Dim usrtxt_c As Integer
+Dim vp As Viewport
+'Dim imagename As Variant
+Dim another_silly_counter as Integer
+Dim AString As String
+Dim TImage As Image
+
+for usrtxt_c = 0 To 29
+	if usertext(usrtxt_c) is Nothing Then
+		Exit For			'theoretically, this should pop us out as soon as we've found an unused annot
+	End If
+Next usrtxt_c
+
+Set vp = GetSelectedViewport()
+If vp Is Nothing Then
+    msgbox "No image was selected."
+    Exit Sub
+End If
+
+AString = InputBox$ ("Please type your annotation.","It types ","R")
+
+'God, this is an ugly routine - but it's the only way to make it work.  Obtain the cell label from
+'the viewport.  That parses it out to specific images.  Trying to assign imagenames to strings and
+'then using those strings in pulling up the images later doesn't work (gah!), so we've got to put
+'the processing bits WHILE parsing what image goes with which viewport.
+'What I *wanted* to do was to obtain the image name, assign it to a variant (or even string)
+'and then be able to bring that back, since not all the cell names are in the same format.
+'for example:
+'variable = Statics(CInt(Right(vp.Label,1)))   ' variable at this point would equal the image name (THOUGH AS A STRING!)
+'Set usertext(usrtxt_c) = AnnotText(variable,10,10,AString)  'And then I'd be done - no swapping around of temp images, etc.
+If vp.Label Like "cell*" Then   ' The wb cells are named, duh, cell[#]
+	'For another_silly_counter = 0 to 1  ' loop through here to fix the intensified images
+		Select Case CInt(Right(vp.Label,1))
+			Case 3
+				 msgbox "Please annotate on the normal intensity image."   'not annotating intensified images for
+			Case 2 							  					'both aesthetic and technical reasons; they're currently NOT SAVED!!!!
+				Set TImage = wb_post
+				Set usertext(usrtxt_c) = AnnotText(TImage,10,10,AString)
+				Set wb_post = TImage
+			 Case 1
+				 msgbox "Please annotate on the normal intensity image."
+			Case 0
+				Set TImage = wb_ant
+				Set usertext(usrtxt_c) = AnnotText(TImage,10,10,AString)
+				Set wb_ant = TImage
+		End Select
+'	Next another_silly_counter
+Elseif vp.Label Like "spot*" Then  'static images on WB
+	Set TImage = Statics(CInt(Right(vp.Label,1)))   ' Just getting the imagename
+	Set usertext(usrtxt_c) = AnnotText(TImage,10,10,AString)
+	Set Statics(CInt(Right(vp.Label,1))) = TImage
+ElseIf vp.Label Like "flow*" Then
+	Set TImage = flow(2)
+	Set usertext(usrtxt_c) = AnnotText(TImage,10,10,AString)
+	Set flow(2) = TImage
+ElseIf vp.Label Like "blood_pool*" Then
+	Set TImage = flow(1)
+	Set usertext(usrtxt_c) = AnnotText(TImage,10,10,AString)
+	Set flow(1) = TImage
+ElseIf vp.Label Like "comp*" Then
+	Set TImage = comparsa(CInt(Right(vp.Label,1)))   ' Just getting the imagename
+	Set usertext(usrtxt_c) = AnnotText(TImage,10,10,AString)
+	Set comparsa(CInt(Right(vp.Label,1))) = TImage
+End If  
+
+End Sub
+
+' ********************************************************************************************
+' *                     DisplayMain
+' ********************************************************************************************
+
+Sub DisplayMain
+
+If (patientname(0) = "") = False Then
+Rem - Static spots handled completely differently now - all statics are lumped together, with no 
+Rem - distinction between names and stuff
+
+
+Rem - the above label is for pressing the main tab again.  :)
+
+Rem Which Format shall I use?   - this is for the wb display, of course.
+Select Case countstatic  
+        Case 4 To 7
+            copied = FormatScreen(mainScreen, "bone_8spots.rt")
+            number_of_vports = ListViewPorts(mainScreen,mainVP)
+        Case Else
+            copied = FormatScreen(mainScreen, "bone_4spots.rt")
+            number_of_vports = ListViewPorts(mainScreen,mainVP)
+
+End Select
+
+
+Rem - Clearing VP & loading WB images
+
+    For i=0 To number_of_vports - 1
+       Clear mainVP(i)
+    Next
+
+If countwb > 1 Then
+	Display  wb_ant, "cell0"
+	Display  wb_post, "cell2"
+	Display wb_2_ant,"cell1"
+	Display wb_2_post,"cell3"
+End If
+	Rem Chooosing display format - remember, numbering starts at ZERO for one image...
+	For i= 0 To countstatic     ' Also setting Static VP's
+	If Statics(i) Is Nothing Then ' just in case as an errorcheck
+	    Else
+    	Select Case i ' It loops through this, reducing the line count!
+            Case 7
+                Display Statics(i),"spot7"
+            Case 6
+                Display Statics(i),"spot6"
+            Case 5
+                Display Statics(i),"spot5"
+            Case 4
+                Display Statics(i),"spot4"
+            Case 3
+                Display Statics(i),"spot3"
+            Case 2
+                Display Statics(i),"spot2"
+            Case 1
+                Display Statics(i),"spot1"
+	           Case 0
+                Display Statics(i),"spot0"              
+	    End Select
+	    Set staticVP(i)=GetViewport("spot" & CStr(i))
+	End If
+	Next    
+
+	Rem setting color to linear, taking off extra labels.  Image labels are put on at the end.
+	
+	For i=0 To number_of_vports - 1
+	    mainVP(i).Color =  LINEAR
+	    mainVP(i).LabelFormat = NONE_FORMAT
+	Next
+	If countwb > 1 Then
+		For i=0 To 3                    'Changing the VP formats
+		    Set wbVP(i) = GetViewport("cell"& CStr(i))
+		Next i
+		If already_done_boss_wb = False Then ' Already done 1.8.1
+			If SMV_ADAC=0 Then '- obviously a 1.1 change
+			    Rem - v1.1 - for SMV, the Zoom needs to be less, so changed from 1.8 to 1.175
+			    Rem - v1.1 - for SMV, the Pan needs to be south 120 pixels for WB pictures
+			    For i=0 To 3
+			    wbVP(i).Zoom = 1.175
+			    wbVP(i).PanY = 120      
+			    Next i
+			Else                        'Zoom for ADAC
+			    For i=0 To 3
+			    wbVP(i).Zoom = 1.75 
+			    Next i
+			End If
+		    
+			Rem Leveling the intense WB images at 150% that of regular WB images
+		
+			wbVP(1).WindowMax=(wbVP(0).WindowMax * 0.6)
+			wbVP(3).WindowMax=(wbVP(2).WindowMax * 0.6)
+		End If ' 1.8.1
+	End If
+	Rem Turning on the GTOOLS - thank goodness I found this thing...
+	if already_done_boss_wb = True Then
+		For i=0 To number_of_vports - 1  ' begin block add 1.8.1
+			mainVP(i).WindowMax = wb_results.wholebody_windowing(i,1)
+			mainVP(i).WindowMin = wb_results.wholebody_windowing(i,2)
+			mainVP(i).Zoom = wb_results.wholebody_zoom(i)
+			mainVP(i).PanX = wb_results.wholebody_pan(i,1)
+			mainVP(i).PanY = wb_results.wholebody_pan(i,2)
+			mainVP(i).rotation = wb_results.rotate(i)
+		Next i	
+	End If        ' end 1.8.1 add.
+    
+    retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ROI_TOOL)
+
+	'using a loop here to annotate the pictures at the bottom left with just the study ID
+	Rem - added version 1.1a - labeling only with study ID
+	Labeling
+
+	Set titleVP = GetViewport("Title")
+	Set titleAnnot = AnnotText(titleVP,0.5,0.5,VERSION)
+
+End If
+End Sub
+
+' ********************************************************************************************
+' *                     Save - WB
+' ********************************************************************************************
+Sub wb_save
+' Calling save functions from the individual processing screens so that it only saves 
+' appropriate bits.  Not elegant, but functional.
+		' Get window levels of all fields   '1.8.1 begin
+		for i = 0 To number_of_vports - 1
+			if mainVP(i) is Nothing Then  ' if not defined, skip
+			Else
+				wb_results.wholebody_windowing(i,1)=mainVP(i).WindowMax
+				wb_results.wholebody_windowing(i,2)=mainVP(i).WindowMin
+				wb_results.wholebody_zoom(i) = mainVP(i).Zoom
+				wb_results.wholebody_pan(i,1) = mainVP(i).PanX
+				wb_results.wholebody_pan(i,2) = mainVP(i).PanY
+				wb_results.rotate(i)=mainVP(i).rotation
+			End If
+		Next	  ' end 1.8.1
+		For i = 0 To countstatic
+			retval = GetAttribValue(Statics(i),"Dataset","DatasetName",dbval) ' get the name of the image
+			Set wb_results.wb_static(i) = Copy(Statics(i),dbval) ' putting it in the saveresults
+		Next
+		Set wb_results.wholebody_ant = Copy(wb_ant,"Anterior")
+		Set wb_results.wholebody_post = Copy(wb_post,"Posterior")
+	SaveResults wb_results,"boneResults_wb"
+	' added 1.8.6 for modality
+	Set series1 = GetSeries(wb_results.wholebody_ant)
+	retval = GetAttribValue(wb_results.wholebody_ant,"Series","Modality",dbVal)
+	If dbVal = "OT" Then
+ 	 	reval = SetAttribValue(series1,"Modality","NM",1)
+		Save series1
+	End If 'end 1.8.6
+	msgbox "Results Saved."
+End Sub
+
+' ********************************************************************************************
+' *                     Save - Dynamic 
+' ********************************************************************************************
+Sub dyn_save
+'Haven't defined this yet
+' Calling save functions from the individual processing screens so that it only saves 
+' appropriate bits.  Not elegant, but functional.
+'	SaveResults bone_results,"boneResults_wb"
+	If processed_dyn = True	Then
+		' Get window levels of all fields   '1.8.0a begin
+		for i = 0 To number_of_vports - 1
+			if mainVP(i) is Nothing Then  ' if not defined, skip
+			Else
+				bone_results.dynamic_windowing(i,1)=mainVP(i).WindowMax
+				bone_results.dynamic_windowing(i,2)=mainVP(i).WindowMin
+				bone_results.rotate(i)=mainVP(i).rotation
+			End If
+		Next	  ' end 1.8.0a
+		'Duplicated all these in 1.8.5 for label saving purposes.
+		Set bone_results.compositeflow=Copy(comparsa(0),"Composite Flow")  
+		Set bone_results.compositepool=Copy(comparsa(1),"Composite Pool")   
+		If comparsa(2) Is Not Nothing Then  ' end 1.8.5a
+			Set bone_results.delayimage=Copy(comparsa(2),"Delay Image")  
+		End If   ' end 1.8.5a	
+		Set bone_results.bloodpool=Copy(flow(1),"Blood Pool")  
+		Set bone_results.boneflow=Copy(flow(2),"Compressed Flow") 
+		SaveResults bone_results,"boneResults_dyn"
+		' added 1.8.6 for modality
+		Set series1 = GetSeries(bone_results.boneflow)
+		retval = GetAttribValue(bone_results.boneflow,"Series","Modality",dbVal)
+		If dbVal = "OT" Then
+	 	 	reval = SetAttribValue(series1,"Modality","NM",1)
+			Save series1
+		End If 'end 1.8.6
+	End If
+	msgbox "Results Saved."
+End Sub

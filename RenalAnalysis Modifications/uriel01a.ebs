@@ -1,0 +1,79 @@
+***************************************************************************
+ Mod File Name : URIEL01a.EBS          		Mod Author: Steve Saus      Difficulty    : oo********  [Easier than omelets] 
+ Mod Date      : 19 Aug 2004    			Creative Commons License: http://creativecommons.org/licenses/by-nd-nc/1.0
+ Files Affected: RARev.ebs  RenalAnalysis.ebs	Description   : Provide normal ERPF for MAG3 renal studies
+*****************************************************************************
+Extended Description:
+
+My doctors like having a calculated normal ERPF based on patient's BSA and age.  While Xeleris 
+is very good at processing renals, it doesn't natively output this information.  Hence.
+
+The calculation that is used is good for Tc99m MAG-3.
+ Normal ERPF = ( 300 mL/min ) / ( BSA m^2 / 1.73 m^2 )
+ If patient's age > 40, subtract 3.5 mL/min from product of above calculation
+==========================================================================
+Disclaimer:
+	I didn't do it, no one saw me do it, and I'm sure as hell not
+	responsible for the stuff on your hard drive. This code has been tested on my install of Xeleris.
+==========================================================================
+History: 1a 	- 19 Aug 2004 	- moved position of block replace so it includes transplants.
+==========================================================================
+STEP ONE:
+	Back up yer source!!!!!!!!  Don't become a statistic!
+==========================================================================
+STEP TWO:
+	Open RenalAnalysis in Aladdin.  
+	Let it tell you several lines are truncated.  Save as your own user protocol.  Re-open it
+	so you can edit it.
+
+==========================================================================
+STEP TWO AND A HALF:
+	
+	Search for the line that begins:
+		declare function JacksonProc(img() as image ....
+	and replace it with:
+	
+	declare function JacksonProc(img() as image,roiobj() as roiobject,crvobj() as curveobject,locobj() as locatorobject,strannimg() as string,strstinfo() as string,_
+				Protocolstr as string,strTJac as string,strcellname() as string,stinfo as studyinfo) as boolean			
+
+	Repeat for the line that begins:
+		declare function dubovskyproc(img()...
+		
+	replacing it with:
+	
+		declare function dubovskyproc(img() as image,roiobj() as roiobject, crvobj() as curveobject,locobj() as locatorobject,strannimg() as string,strstinfo() as string,_
+				       Protocolstr as string,strTdub as string,strcellname() as string,stinfo as studyinfo, contdub as controlarea) as boolean
+
+	Repeat AGAIN for the line that begins:
+		declare function Bubovskyproc(img()...
+
+	Replacing it with:
+		
+		declare function Bubovskyproc(img() as image,roiobj() as roiobject, crvobj() as curveobject,locobj() as locatorobject,strannimg() as string,strstinfo() as string,_
+				       Protocolstr as string,strTBub as string,strcellname() as string,stinfo as studyinfo) as boolean		       
+			       
+	At this point you should be able to save it as a user protocol and install/compile the thing.
+==========================================================================
+STEP THREE:
+	Open RARev.ebs using Hummingbird. 
+==========================================================================
+STEP FOUR:
+	Search for the string 
+		case cJackson 
+	and add the following lines immediately ABOVE it:
+
+'' Begin block URIEL01a				
+                            if (Stinfo.ptage - 40) > 0 Then
+				    status=addline(strannclearance,"Normal ERPF: ",(300/(stinfo.bsa/1.73)) - (3.5*(stinfo.ptage-40)),true)
+                            else
+				 status=addline(strannclearance,"Normal ERPF: ",300/(stinfo.bsa/1.73),true)
+                            end if		   
+'' End block URIEL01a
+==========================================================================
+STEP FIVE:
+	Test.  You *do* have a couple of patient files hidden around for you to test things on, right?
+==========================================================================
+STEP SIX:
+	if (!(thismodder.straightedge))
+		pop_open_a_beer();
+==========================================================================

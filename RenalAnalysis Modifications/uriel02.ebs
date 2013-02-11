@@ -1,0 +1,84 @@
+***************************************************************************
+ Mod File Name : URIEL02.EBS      Mod Author: Steve Saus      Difficulty    : oo********  [Easier than omelets] 
+ Mod Date      : 19 Aug 2004    	Creative Commons License: http://creativecommons.org/licenses/by-nd-nc/1.0
+ Files Affected: RenalAnalysis.ebs	Description   : Apply accession # if none exists
+*****************************************************************************
+Extended Description:
+
+Adding an accession # check isn't that hard, other then the other modifications
+needed for RenalAnalysis.ebs .  If you've already applied any version of URIEL01, you
+can skip straight to step Three.
+
+==========================================================================
+Disclaimer:
+	I didn't do it, no one saw me do it, and I'm sure as hell not
+	responsible for the stuff on your hard drive. This code has been tested on my install of Xeleris.
+==========================================================================
+History: Initial release
+==========================================================================
+STEP ONE:
+	Back up yer source!!!!!!!!  Don't become a statistic!
+==========================================================================
+STEP TWO:
+	Open RenalAnalysis in Aladdin.  
+	Let it tell you several lines are truncated.  Save as your own user protocol.  Re-open it
+	so you can edit it.
+==========================================================================
+STEP TWO AND A HALF:
+	
+	Search for the line that begins:
+		declare function JacksonProc(img() as image ....
+	and replace it with:
+	
+	declare function JacksonProc(img() as image,roiobj() as roiobject,crvobj() as curveobject,locobj() as locatorobject,strannimg() as string,strstinfo() as string,_
+				Protocolstr as string,strTJac as string,strcellname() as string,stinfo as studyinfo) as boolean			
+
+	Repeat for the line that begins:
+		declare function dubovskyproc(img()...
+		
+	replacing it with:
+	
+		declare function dubovskyproc(img() as image,roiobj() as roiobject, crvobj() as curveobject,locobj() as locatorobject,strannimg() as string,strstinfo() as string,_
+				       Protocolstr as string,strTdub as string,strcellname() as string,stinfo as studyinfo, contdub as controlarea) as boolean
+
+	Repeat AGAIN for the line that begins:
+		declare function Bubovskyproc(img()...
+
+	Replacing it with:
+		
+		declare function Bubovskyproc(img() as image,roiobj() as roiobject, crvobj() as curveobject,locobj() as locatorobject,strannimg() as string,strstinfo() as string,_
+				       Protocolstr as string,strTBub as string,strcellname() as string,stinfo as studyinfo) as boolean		       
+			       
+	At this point you should be able to save it as a user protocol and install/compile the thing.
+==========================================================================
+STEP THREE:
+	Search for the string   
+		msglicense=""
+	and add the following immediately BELOW it:
+	
+''	Begin block URIEL02
+Dim dbval As Variant
+Dim study1 As Study
+Dim sName As Variant
+	retval = GetAttribValue(ImageItems(MaxImages-1),"Study", "AccessionNumber", dbval)
+	If dbval = "" Then
+		Set study1 = Getstudy(ImageItems(MaxImages-1))
+		sName = InputBox("Enter an Accession Number","Accession Number",dbval)
+		accession_number_loop:
+		If (sName = "") = False Then
+			retval = SetAttribValue(study1,"AccessionNumber",sName, 1)
+		Else
+			sName = InputBox("You MUST enter an Accession Number", "Accession Number", dbval)
+			goto accession_number_loop
+		End If
+		Save study1
+	End If
+'' End block URIEL02
+==========================================================================
+STEP FOUR:
+	Test.  You *do* have a couple of patient files hidden around for you to test things on, right?
+==========================================================================
+STEP FIVE:
+	if (!(thismodder.straightedge))
+		pop_open_a_beer();
+==========================================================================

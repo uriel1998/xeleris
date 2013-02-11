@@ -1,0 +1,40 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                                
+!             Review Template Script             
+!                                                
+!                                                
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+top.name:		top
+
+top.format:		{comp2,   	0.6600, 0.6600, 0.9900, 0.9900},\
+				{comp1,   	0.3300, 0.6600, 0.6600, 0.9900},\
+				{comp0,   	0.0000, 0.6600, 0.3300, 0.9900},\
+				{blood_pool,   	0.5008, 0.0503, 1.0000, 0.6503},\
+				{flow,   	0.0000, 0.0500, 0.5000, 0.6500},\
+				{Title,   	0.0000, 0.0000, 1.0000, 0.0500}
+
+top.comp2.name:    comp2
+top.comp2.contents:    stub
+
+top.comp1.name:    comp1
+top.comp1.contents:    stub
+
+top.comp0.name:    comp0
+top.comp0.contents:    stub
+
+top.blood_pool.name:    blood_pool
+top.blood_pool.contents:    stub
+
+top.flow.name:    flow
+top.flow.contents:    stub
+
+top.Title.name:    Title
+top.Title.contents:    stub
+
+
+top.*.contents:          stub
+top.*.type:              Imgvp
+top.*.colour_map:        ge_colour
+top.*.imgvp_type:        image
+top.*.acqparam_format:   basicFormat.lead

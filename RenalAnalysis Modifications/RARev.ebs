@@ -1,0 +1,1741 @@
+#include <CustProcedures.ebh>
+#include "RenalAnalysis.h"
+
+
+option explicit
+
+'----------------------------------------------------------------------------------------------------
+
+dim strRADyn1 as string
+dim strRADyn2 as string
+dim strRADyn3 as string
+dim strRADyn4 as string
+dim strRARevNPND as string
+dim strRARevND as string
+dim strRARevNP as string
+dim strRARev as string
+dim strRNGRev as string
+Dim strCaptionCurves(4) As String
+Dim strKidney(40) As String
+Dim strCurve(6) As String 'labels for curve parameters
+Dim strannotCurveinfo(4,4)
+Dim StrCaptionKidney(4) As String
+Dim strannKidneyinfo(4) As String
+Dim annKidneyinfo(4) As annot
+Dim annCurveinfo(4,4) As annot
+Dim vpRARcurveinfo(4,4) As viewport
+Dim strannCurveinfo(4,4) As String
+Dim strannSTinfo As String
+Dim strannClearance As String
+Dim annSTinfo As annot
+Dim annclearance As annot
+
+Dim vpPerQC(7) As viewport
+Dim vpLPerQC(6) As viewport
+Dim anPerQC(6) As annot
+Dim strcellPerQC(7) As String
+Dim iPerQC(6) As Integer
+
+Dim vpFunQC(7) As viewport
+Dim vpLFunQC(6) As viewport
+Dim anFunQC(6) As annot
+Dim strcellFunQC(7) As String
+Dim iFunQC(6) As Integer
+
+
+Dim vpdiuQC(5) As viewport
+Dim vpLdiuQC(5) As viewport
+Dim andiuQC(5) As annot
+Dim strcelldiuQC(5) As String
+Dim idiuQC(4) As Integer
+
+
+
+Dim vpDyn(6) As viewport
+Dim vpLDyn(6) As viewport
+Dim anDyn(6) As annot
+Dim strcellDyn(6) As String
+Dim iDyn(6) As Integer
+
+Dim vpRAR(10) As viewport
+Dim vpLRAR(8) As viewport
+Dim anRAR(8) As annot
+Dim strcellRAR(10) As String
+Dim iRAR(10) As Integer
+Dim vpcrvinfo(1 To 3,2) As viewport
+Dim vpKidinfo(2) As viewport
+
+
+Dim vpRNGR(9) As viewport
+Dim vpLRNGR(8) As viewport
+Dim anRNGR(8) As annot
+Dim strcellRNGR(8) As String
+Dim iRNGR(8) As Integer
+Dim vpRNGcrvinfo(1 To 3,2) As viewport
+Dim vpRNGKidinfo(2) As viewport
+
+
+Dim str
+
+
+
+
+'Declared in RAcrvProc.ebs
+
+Declare Sub displaycrv(crvobj As curveobject,vp As viewport,bshowlegend As Boolean)
+'Declared in RAStats
+declare Function setlocobj(locobj() As locatorobject,indx As Integer,crv As curve) As Boolean
+Declare Function Hidelocobj(locobj() As locatorobject, indx as integer) As Boolean
+'declared in RAstrings.ebs
+Declare Sub Setstrparams(Stinfo As studyinfo,strcaptionKidney() As String,strcaptioncurves() As String ,strCurve() As String,strKidney() As String)
+
+
+Function LocatorsInteractive(locobj() As locatorobject,status As Boolean) As Boolean
+    Dim i As Integer
+    For i = 0 To 36
+        If locobj(i).displayed Then
+
+            locobj(i).locRA.interactiveon=status
+        End If
+    Next
+    LocatorsInteractive=true
+End Function
+
+
+
+
+
+
+
+
+
+
+Function addline(strAnn As String,stritem As String,value As Double,bflag As Boolean) As Boolean
+    If value>0 Then
+        strAnn=strAnn+stritem+format$(value,"####.##")+chr$(10)+chr$(13)
+    ElseIf Len(stritem)>0 And bflag=true Then
+        strAnn=strAnn+stritem+chr$(10)+chr$(13)
+    ElseIf bflag=true Then
+        strAnn=strAnn+"NA"+chr$(10)+chr$(13)
+    Else
+    End If
+    addline=true
+End Function
+
+
+
+Function setwinmax(vp As viewport,roiobj() As roiobject,phase As Integer,bremoveroi As Boolean) As Boolean
+    Dim i As Integer
+    Dim j As Integer
+    Dim winmax As Double
+    Dim img As image
+    Dim stats As istatsinfo
+    Dim status As Boolean
+    If vp Is Nothing Then
+        setwinmax=true
+        Exit Function
+    End If
+    winmax=-1
+    Set img=getimage(VP)
+    If img Is Nothing Then
+        setwinmax=true
+        Exit Function
+    End If
+    If phase=1 Then
+        For  j=cLTFunKidneyROI To cFunKidneyROI Step 2
+            If roiobj(j).exists Then
+                For i=1 To img.length
+                    If bremoveroi=true Then
+                        roiimagelink img,roiobj(j).roiRA,i
+                        status=statistics(img,i,stats,roiobj(j).roiRA)
+                        If stats.maximum>winmax Then
+                            winmax=stats.maximum
+                        End If
+                        roiimageunlink img,roiobj(j).roiRA,i
+                    Else
+                        status=statistics(img,i,stats,roiobj(j).roiRA)
+                        If stats.maximum>winmax Then
+                        winmax=stats.maximum
+                        End If
+                    End If
+                Next
+            End If
+        Next
+    Else
+        For  j=cLTPerKidneyROI To cPerKidneyROI Step 2
+            If roiobj(j).exists Then
+                If bremoveroi=true Then
+                    roiimagelink img,roiobj(j).roiRA,img.length
+                    status=statistics(img,img.length,stats,roiobj(j).roiRA)
+                    If stats.maximum>winmax Then
+                        winmax=stats.maximum
+                    End If
+                    roiimageunlink img,roiobj(j).roiRA,img.length
+                Else
+                    status=statistics(img,img.length,stats,roiobj(j).roiRA)
+                    If stats.maximum>winmax Then
+                        winmax=stats.maximum
+                    End If
+                End If
+            End If
+        Next
+    End If
+    If winmax>0 Then
+        vp.windowmax=winmax
+    End If
+    setwinmax=true
+End Function
+
+
+
+
+
+
+Function CreateAnnotations(STinfo As Studyinfo,strSTInfo() As String) As Boolean
+    Dim i As Integer
+    Dim j As Integer
+    Dim k As Integer
+    Dim status As Boolean
+    For i=0 To 4
+            strannKidneyinfo(i)=""
+        For j=0 To 4
+            stranncurveinfo(j,i)=""
+        Next
+    Next
+    Call Setstrparams(Stinfo,strcaptionKidney(),strcaptioncurves(),strCurve(),strKidney())
+
+    status=addline(strannKidneyinfo(0),"Kidney",0,True)
+    status=addline(strannKidneyinfo(0),"--------------",0,true)
+
+    'New
+    status=addline(strannKidneyinfo(0),Strkidney(cAREA),0,true)
+    if (stinfo.ikidneystate=ctransplant and Stinfo.dkidneyinfo(cKidneydepth,ctransplant)>0) or _
+       ((Stinfo.dkidneyinfo(ckidneydepth,cleftkidneyonly)+Stinfo.dkidneyinfo(ckidneydepth,crightkidneyonly)+Stinfo.dkidneyinfo(cKidneydepth,cotherkidney))>0  and stinfo.ikidneystate<>ctransplant) Then
+       status=addline(strannKidneyinfo(0),Strkidney(cKidneyDepth),0,true)
+    End If
+    'old
+    'For j=0 To 1
+    '   If Not(STinfo.ikidneyState<>ctwokidneys And (j=cdperintpercent Or j=cdperslopepercent Or j=cdupintpercent Or j=cdupslopepercent)) Then
+    '        status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(ckidneydepth,i),true)
+    '   End If
+    'Next
+    If stinfo.bperfusion=true Then
+        if ((stinfo.igencustvar(cincperindx)=1 and stinfo.ikidneystate<>ctransplant) or _
+            stinfo.ikidneystate=ctransplant) and _
+            not(stinfo.bmanren=true and _
+            (stinfo.Perfusionindexmode= cpetersaorta or _
+             stinfo.Perfusionindexmode= cpeterslung or _
+             stinfo.Perfusionindexmode= cpetersheart)) then
+            status=addline(strannKidneyinfo(0),Strkidney(cperfusionindex),0,true)
+        end if
+        If STinfo.ikidneyState=ctwokidneys Then
+            status=addline(strannKidneyinfo(0),Strkidney(cdperintpercent),0,true)
+            If stinfo.igencustvar(cInSlopeMethodPer)=1 Then
+                 status=addline(strannKidneyinfo(0),Strkidney(cdperSlopepercent),0,true)
+            End If
+        End If
+    End If
+
+    If STinfo.ikidneyState=ctwokidneys Then
+        status=addline(strannKidneyinfo(0),Strkidney(cdupintpercent),0,true)
+        If stinfo.igencustvar(cInSlopeMethodfun)=1 or stinfo.bpatlak Then
+             status=addline(strannKidneyinfo(0),Strkidney(cdupSlopepercent),0,true)
+        End If
+    End If
+
+    If stinfo.ScaledMAGCL>0 Then
+        status=addline(strannKidneyinfo(0),Strkidney(7),0,true)
+    End If
+        if stinfo.bmanren and stinfo.bmanrenquant=true then
+            status=addline(strannKidneyinfo(0),Strkidney(cdUptake2),0,true)
+            status=addline(strannKidneyinfo(0),strkidney(cdUptake3),0,true)
+        end if
+
+    For i=cLeftKidneyOnly To cOtherkidney
+        status=addline(strannKidneyinfo(i),strCaptionKidney(i),0,true)
+        status=addline(strannKidneyinfo(i),"--------------",0,true)
+        'new
+        status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cArea,i),true)
+        If Stinfo.dkidneyinfo(ckidneydepth,i)>0  Then
+            status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(ckidneydepth,i),true)
+        End If
+
+
+
+        If stinfo.bperfusion=true Then
+            if ((stinfo.igencustvar(cincperindx)=1 and stinfo.ikidneystate<>ctransplant) or _
+            stinfo.ikidneystate=ctransplant) and _
+            not(stinfo.bmanren=true and _
+            (stinfo.Perfusionindexmode= cpetersaorta or _
+             stinfo.Perfusionindexmode= cpeterslung or _
+             stinfo.Perfusionindexmode= cpetersheart)) then
+                status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cperfusionindex,i),true)
+            end if
+            If STinfo.ikidneyState=ctwokidneys Then
+                status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cdperintpercent,i),true)
+                If stinfo.igencustvar(cInSlopeMethodPer)=1 Then
+                     status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cdperslopepercent,i),true)
+                End If
+            End If
+        End If
+
+    If STinfo.ikidneyState=ctwokidneys Then
+           status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cdupintpercent,i),true)
+           If stinfo.igencustvar(cInSlopeMethodfun)=1 or stinfo.bpatlak Then
+          status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cdupslopepercent,i),true)
+           End If
+      End If
+
+      If stinfo.ScaledMAGCL>0 Then
+              if stinfo.mode<>cGates then
+                status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cGFRRPF,i),true)
+          else
+                status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cGFRRPF,i)*stinfo.bsa/1.73,true)
+          end if
+      End If
+
+    if stinfo.bmanren=true and stinfo.bmanrenquant=true then
+         status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cdUptake2,i),true)
+         status=addline(strannKidneyinfo(i),"",Stinfo.dkidneyinfo(cdUptake3,i),true)
+    end if
+    Next
+
+
+    If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+        status=addline(strannCurveinfo(cCort,0),strCaptionCurves(cCort),0,true)
+        status=addline(strannCurveinfo(cCort,0),"--------------",0,true)
+        For i=cLeftKidneyOnly To cOtherkidney
+            status=addline(stranncurveinfo(cCort,i)," ",0,true)
+            status=addline(stranncurveinfo(cCort,i)," ",0,true)
+        Next
+    End If
+
+    If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+        status=addline(strannCurveinfo(cColl,0),strCaptionCurves(cColl),0,true)
+        status=addline(strannCurveinfo(cColl,0),"--------------",0,true)
+        For i=cLeftKidneyOnly To cOtherkidney
+            Status=addline(stranncurveinfo(cColl,i)," ",0,true)
+            Status=addline(stranncurveinfo(cColl,i)," ",0,true)
+        Next
+    End If
+
+
+
+
+    If stinfo.irencustvar(stinfo.iCustren,cDispTtoHp)=1 Then
+        status=addline(stranncurveinfo(ckid,0),strCurve(ctimetohalfpeak),0,true)
+        If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+           status=addline(stranncurveinfo(cCort,0),strCurve(ctimetohalfpeak),0,true)
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+           status=addline(stranncurveinfo(cColl,0),strCurve(ctimetohalfpeak),0,true)
+        End If
+    End If
+    If stinfo.irencustvar(stinfo.iCustren,cDispTimetopeak)=1 Then
+        status=addline(stranncurveinfo(ckid,0),strCurve(ctimetopeak),0,true)
+        If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+             status=addline(stranncurveinfo(cCort,0),strCurve(ctimetopeak),0,true)
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+             status=addline(stranncurveinfo(cColl,0),strCurve(ctimetopeak),0,true)
+        End If
+    End If
+    If stinfo.irencustvar(stinfo.iCustren,cDispHalftime)=1 Then
+        status=addline(stranncurveinfo(ckid,0),strCurve(cHalftime),0,true)
+        If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+            status=addline(stranncurveinfo(cCort,0),strCurve(cHalfTime),0,true)
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+             status=addline(stranncurveinfo(cColl,0),strCurve(cHalfTime),0,true)
+        End If
+    End If
+    If stinfo.irencustvar(stinfo.iCustren,cDispRatio20_peak)>0 Then
+        status=addline(stranncurveinfo(ckid,0),strCurve(cRatio1920topeak),0,true)
+        If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+            status=addline(stranncurveinfo(cCort,0),strCurve(cRatio1920topeak),0,true)
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+            status=addline(stranncurveinfo(cColl,0),strCurve(cRatio1920topeak),0,true)
+        End If
+    End If
+    If stinfo.irencustvar(stinfo.iCustren,cDispRatio20_3)>0 Then
+        status=addline(stranncurveinfo(ckid,0),strCurve(cRatio20to3),0,true)
+        If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+            status=addline(stranncurveinfo(cCort,0),strCurve(cRatio20to3),0,true)
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+            status=addline(stranncurveinfo(cColl,0),strCurve(cRatio20to3),0,true)
+        End If
+    End If
+    If stinfo.iFurosemide=1 Then
+        status=addline(stranncurveinfo(ckid,0),strCurve(cHalftimefromdiuretic),0,true)
+        If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+            status=addline(stranncurveinfo(cCort,0),strCurve(cHalftimefromdiuretic),0,true)
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+            status=addline(stranncurveinfo(cColl,0),strCurve(cHalftimefromdiuretic),0,true)
+        End If
+    End If
+
+    For i=cleftKidneyOnly To cOtherKidney
+        If stinfo.irencustvar(stinfo.iCustren,cDispTtoHp)=1 Then
+            status=addline(stranncurveinfo(cKid,i),"",Stinfo.dCurveinfo(ctimetohalfpeak,cKid,i),true)
+            If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+                status=addline(stranncurveinfo(cCort,i),"",Stinfo.dCurveinfo(ctimetohalfpeak,cCort,i),true)
+            End If
+            If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+                status=addline(stranncurveinfo(cColl,i),"",Stinfo.dCurveinfo(ctimetohalfpeak,cColl,i),true)
+            End If
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cDispTimetopeak)=1 Then
+            status=addline(stranncurveinfo(cKid,i),"",Stinfo.dCurveinfo(ctimetopeak,cKid,i),true)
+            If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+                status=addline(stranncurveinfo(cCort,i),"",Stinfo.dCurveinfo(ctimetopeak,cCort,i),true)
+            End If
+            If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+                status=addline(stranncurveinfo(cColl,i),"",Stinfo.dCurveinfo(ctimetopeak,cColl,i),true)
+            End If
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cDispHalftime)=1 Then
+            status=addline(stranncurveinfo(cKid,i),"",Stinfo.dCurveinfo(cHalftime,cKid,i),true)
+            If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+                status=addline(stranncurveinfo(cCort,i),"",Stinfo.dCurveinfo(chalftime,cCort,i),true)
+            End If
+            If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+                status=addline(stranncurveinfo(cColl,i),"",Stinfo.dCurveinfo(chalftime,cColl,i),true)
+            End If
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cDispRatio20_peak)>0 Then
+            status=addline(stranncurveinfo(cKid,i),"",Stinfo.dCurveinfo(cRatio1920topeak,cKid,i),true)
+            If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+                status=addline(stranncurveinfo(cCort,i),"",Stinfo.dCurveinfo(cRatio1920toPeak,cCort,i),true)
+            End If
+            If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+                status=addline(stranncurveinfo(cColl,i),"",Stinfo.dCurveinfo(cRatio1920toPeak,cColl,i),true)
+            End If
+        End If
+        If stinfo.irencustvar(stinfo.iCustren,cDispRatio20_3)>0 Then
+            status=addline(stranncurveinfo(cKid,i),"",Stinfo.dCurveinfo(cRatio20to3,cKid,i),true)
+            If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+                status=addline(stranncurveinfo(cCort,i),"",Stinfo.dCurveinfo(cRatio20to3,cCort,i),true)
+            End If
+            If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+                status=addline(stranncurveinfo(cColl,i),"",Stinfo.dCurveinfo(cRatio20to3,cColl,i),true)
+            End If
+        End If
+        If stinfo.iFurosemide=1 Then
+            status=addline(stranncurveinfo(cKid,i),"",Stinfo.dCurveinfo(cHalftimefromdiuretic,cKid,i),true)
+            If stinfo.irencustvar(stinfo.iCustren,cIncCort)=1 Then
+                status=addline(stranncurveinfo(cCort,i),"",Stinfo.dCurveinfo(cHalftimefromdiuretic,cCort,i),true)
+            End If
+            If stinfo.irencustvar(stinfo.iCustren,cIncCol)=1 Then
+                status=addline(stranncurveinfo(cColl,i),"",Stinfo.dCurveinfo(cHalftimefromdiuretic,cColl,i),true)
+            End If
+        End If
+    Next
+
+
+
+
+    strannSTinfo=""
+    strannclearance=""
+    status=addline(strannSTinfo,strSTInfo(0),STInfo.Age,false)
+    If stinfo.iageunit=0 And STInfo.Age>0 Then
+        strannSTinfo=left$(strannSTinfo,Len(strannSTinfo)-2)+" Years"+chr$(10)+chr$(13)
+    ElseIf stinfo.iageunit=1 And STInfo.Age>0 Then
+        strannStinfo=left$(strannSTinfo,Len(strannSTinfo)-2)+" Months"+chr$(10)+chr$(13)
+    End If
+    status=addline(strannSTinfo,strSTInfo(1)+stinfo.strheightunits,STInfo.ptHeight,false)
+    status=addline(strannSTinfo,strSTInfo(2)+stinfo.strweightunits,STInfo.ptWeight,false)
+    If STinfo.iPediatricstate=1 Then
+        status=addline(strannSTinfo,strSTInfo(3)&" Yes",0,true)
+    'Else
+    '   status=addline(strannSTinfo,strSTInfo(3)&" No",0,true)
+    End If
+
+    If STinfo.Radiopharmaceutical=1 Then
+        status=addline(strannSTinfo,strSTInfo(4)&" TcMAG3",0,true)
+    ElseIf  STinfo.Radiopharmaceutical=2 Then
+        status=addline(strannSTinfo,strSTInfo(4)&" TcDTPA",0,true)
+    ElseIf STinfo.Radiopharmaceutical=3 Then
+        status=addline(strannSTinfo,strSTInfo(4)&" I123 OH",0,true)
+    ElseIf STinfo.Radiopharmaceutical=4 Then
+        status=addline(strannSTinfo,strSTInfo(4)&" I131 OH",0,true)
+    End If
+    status=addline(strannSTinfo,strSTInfo(5)+stinfo.doseunits,STInfo.Ptinjecteddose,false)
+    status=addline(strannSTinfo,strSTInfo(6)+stinfo.doseunits,STInfo.ptcounteddose,false)
+
+    if sTinfo.bsyringeimage=false and stinfo.icamera(stinfo.isotope,stinfo.callibmethod)>0 and _
+    (stinfo.perfusionindexmode>ckirchner or _
+    stinfo.scaledmagcl>0 or _
+    Stinfo.bmanRenQuant=true) then
+    status=addline(strannSTinfo,"Camera/Collimator "+stinfo.camname(stinfo.isotope,stinfo.callibmethod,stinfo.icamera(stinfo.isotope,stinfo.callibmethod))+" CF:",stinfo.camsens(stinfo.isotope,stinfo.callibmethod,stinfo.icamera(stinfo.isotope,stinfo.callibmethod)),false)
+    'status=addline(strannSTinfo,strSTInfo(6)+stinfo.doseunits,STInfo.ptcounteddose,false)
+        end if
+
+
+    If STInfo.dattenuator>1 Then
+        status=addline(strannSTinfo,strSTInfo(7),STInfo.dattenuator,true)
+    End If
+    If STInfo.icaptopril=1 Then
+        status=addline(strannSTinfo,strSTInfo(8)&" Yes",0,true)
+        status=addline(strannSTinfo,strSTInfo(9),STInfo.CaptoprilDo,false)
+    End If
+    If STinfo.iFurosemide Then
+        status=addline(strannSTinfo,strSTInfo(10)&" Yes",0,true)
+        status=addline(strannSTinfo,strSTInfo(11),cdbl(STInfo.DiureticDose),false)
+        status=addline(strannSTinfo,strSTInfo(12),STInfo.DiureticTime,true)
+    End If
+    If STinfo.IkidneyState=cTransplant Then
+        status=addline(strannSTinfo,strSTInfo(13)&" Transplant",0,true)
+    End If
+
+    status=addline(strannSTinfo,strSTInfo(14),STInfo.BSA,false)
+
+
+
+        select case stinfo.mode
+            case cGates
+                  status=addline(strannclearance,"GFR ml/min: ",Stinfo.ScaledMAGCL*stinfo.bsa/1.73,false)
+                  If Stinfo.ptAge>20. And Stinfo.Ptage<60. Then
+                        status=addline(strannclearance,"Scaled GFR ml/min: ",Stinfo.ScaledMAGCL,false)
+                  end if
+                  If STinfo.ikidneystate<>ctransplant And stinfo.ScaledMAGCL>0 Then
+                status=addline(strannclearance,strSTinfo(16),Stinfo.ExpMAGCL,false)
+                status=addline(strannclearance,strSTinfo(17),Stinfo.EqOIHCL,false)
+                If STinfo.Radiopharmaceutical=cMAG Then
+                    status=addline(strannclearance,strSTinfo(18),Stinfo.ExpOIHCL,false)
+                End If
+              end if
+
+                case cQuantEMGenie,cQuantEMXpert,cERPFModgates,cERPFmodSchlegel,cSchlegel
+                    status=addline(strannclearance,strSTinfo(15),Stinfo.ScaledMAGCL,false)
+                    If STinfo.ikidneystate<>ctransplant And stinfo.ScaledMAGCL>0 Then
+                        status=addline(strannclearance,strSTinfo(16),Stinfo.ExpMAGCL,false)
+                        status=addline(strannclearance,strSTinfo(17),Stinfo.EqOIHCL,false)
+                        If STinfo.Radiopharmaceutical=cMAG Then
+                            status=addline(strannclearance,strSTinfo(18),Stinfo.ExpOIHCL,false)
+			 End If
+                    end if
+'' Begin block URIEL01a
+                            if (Stinfo.ptage - 40) > 0 Then
+				    status=addline(strannclearance,"Normal ERPF: ",(300/(stinfo.bsa/1.73)) - (3.5*(stinfo.ptage-40)),true)
+                            else
+				 status=addline(strannclearance,"Normal ERPF: ",300/(stinfo.bsa/1.73),true)
+                            end if		   
+'' End block URIEL01a
+
+		    case cJackson
+                     status=addline(strannclearance,"GFR ml/min:",Stinfo.GFR,false)
+                 case cDubovsky
+                     status=addline(strannclearance,"ERPF (ml/min):         ",Stinfo.ERPF,false)
+                     status=addline(strannclearance,"ERPF (ml/min*1.73m^2): ",Stinfo.ScaledERPF,false)
+                     if Stinfo.ScaledERPF>0 then
+                        status=addline(strannclearance,"Exp ERPF (ml/min):     ",Stinfo.expERPF,false)
+                    status=addline(strannclearance,"Actual Excretion%:     ",stinfo.dubActualexcretionPer,false)
+                status=addline(strannclearance,"Expected Excretion%:   ",stinfo.dubExpectedexcretion,false)
+                    status=addline(strannclearance,"Residual Dose%:        ",stinfo.dubResidualdosePer,false)
+                    status=addline(strannclearance,"Excretion Index:       ",stinfo.dubexcretoryindex,false)
+                 end if
+         case cBubeck
+             status=addline(strannclearance,"TER(MAG3) (ml/min/1.73m^2): ",Stinfo.ScaledERPF,false)
+             if Stinfo.ScaledERPF>0 then
+                status=addline(strannclearance,"Expected TER(MAG3):         ",Stinfo.expERPF,false)
+             end if
+                 case cManPatlak, cManROI
+
+        end select
+
+End Function
+
+
+Sub StopCinedviewports(scrnPerfusionQC As screen,scrnFunctionQC As screen,scrndiureticQC As screen)
+    If  vpPerQC(3) Is Not Nothing Then
+        cinestop  vpPerQC(3)
+    end if
+    If  vpFunQC(3) Is Not Nothing Then
+        cinestop  vpFunQC(3)
+    end if
+    If  vpDiuQC(3) is not nothing Then
+        cinestop  vpDiuQC(3)
+    End If
+    if vpRAR(2) is not nothing then
+              cinestop vpRAR(2)
+        end if
+        if vpRAR(3) is not nothing then
+              cinestop vpRAR(3)
+        end if
+
+
+End Sub
+
+
+
+
+
+sub DisplayPerfusionQC(scrnPerfusionQC As screen,strTPerQC As String,img() As image,roiobj() As roiobject,crvobj() As curveobject,locobj() As locatorobject,strcellname() As String,strAnnImg() As String, _
+STinfo As studyinfo)
+        Dim i As Integer
+    Dim vpheader As viewport
+    Dim Protocolstr As String
+    dim status as boolean
+'fill array with images to be displayed
+    If scrnPerfusionQC Is Nothing Then
+        iPerQC(0)=c1_30sec
+        iPerQC(1)=c30_60sec
+        iPerQC(2)=cFirstminute
+        iPerQC(3)=cFirstPhase
+        iPerQC(4)=cFull
+        iPerQC(5)=cEmpty
+        iPerQC(6)=cinjection
+        Set scrnPerfusionQC=createscreen("RAPerQC.rt")
+        display scrnperfusionQC
+        status = SelectTools(TRUE,ANNOT_TOOL, COLORMAP_TOOL,CINE_TOOL,SCROLL_TOOL,PANZOOM_TOOL)
+        Set vpheader=getviewport("Title")
+        Call CustFillScreenHeader (img,Protocolstr,strTPerQC,vpheader)
+        For i=0 To 6
+            Set vpPerQC(i)=getviewport(strCellname(iPerQC(i)))
+            Set vpPerQC(i).color=stinfo.igencustvar(cColorMAP)
+
+            Set vpLPerQC(i)=getviewport("L"+strCellname(iPerQC(i)))
+
+
+            If img(iPerQC(i)) Is Not Nothing Then
+                display img(iPerQC(i)),vpPerQC(i)
+                If img(iPerQC(i)).length>1 Then
+                   Set vpPerQC(i).LabelFormat=NUMBER_ONLY_FORMAT
+                Else
+                    Set vpPerQC(i).LabelFormat=NONE_FORMAT
+                End If
+                Set anPerQC(i)=annottext(vplperQC(i),0,0.5,strannimg(iPerQC(i)))
+            End If
+            disable vpLPerQC(i),true
+        Next
+        for i=4 to 6
+            vpPerQC(i).labelformat=ACQ_FORMAT
+        next
+
+        Set vpPerQC(7)=getviewport("EGraph")
+
+        status=setwinmax(vpPerQC(0),roiobj(),0,false)
+        status=setwinmax(vpPerQC(1),roiobj(),0,false)
+        status=setwinmax(vpPerQC(2),roiobj(),0,false)
+        status=setwinmax(vpPerQC(3),roiobj(),0,false)
+    End If
+    lockcontrols true
+    clear vpPerQC(7)
+    Call displaycrv(crvobj(cLtEarlyphase),vpPerQC(7),true)
+    Call displaycrv(crvobj(cRtEarlyphase),vpPerQC(7),true)
+    Call displaycrv(crvobj(cEarlyphase),vpPerQC(7),true)
+    'Call displaycrv(crvobj(cPerAorticROI),vpPerQC(7),true)
+    'Call displaycrv(crvobj(cPerIliacROI),vpPerQC(7),true)
+    Call displaycrv(crvobj(cScaledBolus),vpPerQC(7),true)
+    Call displaycrv(crvobj(cEarlyMaster),vpPerQC(7),False)
+    Call displaycrv(crvobj(cRTPerSlope),vpPerQC(7),False)
+    Call displaycrv(crvobj(cLTPerSlope),vpPerQC(7),False)
+    vpPerQC(7).footer="Perfusion"
+    cinePlay vpPerQC(3)
+    display scrnperfusionQC
+    lockcontrols false
+End sub
+
+
+
+
+
+
+
+sub DisplayFunctionQC(scrnFunctionQC As screen,strTfunQC As String,img() As image,roiobj() As roiobject,crvobj() As curveobject,locobj() As locatorobject,strcellname() As String,strAnnImg() As String, _
+STinfo As studyinfo)
+    Dim i As Integer
+    Dim vpheader As viewport
+    Dim Protocolstr As String
+    dim status as boolean
+    dim list(10) as integer
+    If scrnFunctionQC Is Nothing Then
+        iFunQC(0)=cSummed
+        iFunQC(1)=cuptakeinterval
+        iFunQC(2)=cFlow
+        iFunQC(3)=cFrameperminute
+        iFunQC(4)=cFull
+        iFunQC(5)=cEmpty
+        iFunQC(6)=cinjection
+        Set scrnFunctionQC=createscreen("RALateQC.rt")
+        display scrnFunctionQC
+        status = SelectTools(TRUE,ANNOT_TOOL, COLORMAP_TOOL,CINE_TOOL,SCROLL_TOOL,PANZOOM_TOOL)
+        Set vpheader=getviewport("Title")
+        Call CustFillScreenHeader (img,Protocolstr,strTfunQC,vpheader)
+
+        For i=0 To 6
+            Set vpFunQC(i)=getviewport(strCellname(iFunQC(i)))
+            Set vpFunQC(i).color=stinfo.igencustvar(cColorMAP)
+            Set vpFunQC(i).LabelFormat=NONE_FORMAT
+            Set vpLFunQC(i)=getviewport("L"+strCellname(iFunQC(i)))
+
+            If img(iFunQC(i)) Is Not Nothing Then
+                display img(iFunQC(i)),vpFunQC(i)
+                If img(iFunQC(i)).length>1 Then
+                   Set vpFunQC(i).LabelFormat=NUMBER_ONLY_FORMAT
+                Else
+                    Set vpFunQC(i).LabelFormat=NONE_FORMAT
+                End If
+
+                Set anFunQC(i)=annottext(vplFunQC(i),0,0.5,strannimg(iFunQC(i)))
+
+            End If
+            disable vpLFunQC(i),true
+        Next
+        for i=4 to 6
+            vpFunQC(i).labelformat=ACQ_FORMAT
+        next
+        Set vpFunQC(7)=getviewport("LGraph")
+
+    End If
+    lockcontrols true
+    clear vpFunQC(7)
+    if stinfo.mode<>cManPatlak then
+        Call displaycrv(crvobj(cLtBKgSubKidney),vpFunQC(7),true)
+        Call displaycrv(crvobj(cRtBKGSubKidney),vpFunQC(7),true)
+        Call displaycrv(crvobj(cBKGSubKidney),vpFunQC(7),true)
+        Call displaycrv(crvobj(cLtBKgSubCortical),vpFunQC(7),true)
+        Call displaycrv(crvobj(cRtBKGSubCortical),vpFunQC(7),true)
+        Call displaycrv(crvobj(cBKGSubCortical),vpFunQC(7),true)
+    Call displaycrv(crvobj(cBladderROI),vpFunQC(7),true)
+        'Call displaycrv(crvobj(cAorticROI),vpFunQC(7),true)
+        'Call displaycrv(crvobj(cIliacROI),vpFunQC(7),true)
+        Call displaycrv(crvobj(cLateMaster),vpFunQC(7),False)
+        Call displaycrv(crvobj(cRTupSlope),vpFunQC(7),False)
+        Call displaycrv(crvobj(cLTupSlope),vpFunQC(7),False)
+        if stinfo.bmanren=true  and stinfo.blocatorsonNorm then
+        list(0)=cstart
+        list(1)=cUpintstart
+        List(2)=cUpintend
+        for i =0 to 2
+            if locobj(list(i)).displayed then
+                deletelocator locobj(list(i)).locRA
+                status=setlocobj(locobj(),list(i),crvobj(cLateMaster).crvRA)
+                locobj(list(i)).locRA.interactiveon=false
+                locobj(list(i)).displayed=true
+                    addnotify locobj(list(i)).locRA,"locEM"&cstr(list(i)),NOTIF_END_MOVE
+                    addnotify locobj(list(i)).locRA,"locStart"&cstr(list(i)),NOTIF_START
+            end if
+         next
+          stinfo.blocatorsonnorm=false
+        end if
+    else
+        Call displaycrv(crvobj(cLtVascSubKidney),vpFunQC(7),true)
+        Call displaycrv(crvobj(cRtVascSubKidney),vpFunQC(7),true)
+        Call displaycrv(crvobj(cVascSubKidney),vpFunQC(7),true)
+        Call displaycrv(crvobj(cLtVascSubCortical),vpFunQC(7),true)
+        Call displaycrv(crvobj(cRtVascSubCortical),vpFunQC(7),true)
+        Call displaycrv(crvobj(cVascSubCortical),vpFunQC(7),true)
+    Call displaycrv(crvobj(cBladderROI),vpFunQC(7),true)
+        'Call displaycrv(crvobj(cAorticROI),vpFunQC(7),true)
+        'Call displaycrv(crvobj(cIliacROI),vpFunQC(7),true)
+        Call displaycrv(crvobj(cLateMaster),vpFunQC(7),False)
+        'Call displaycrv(crvobj(cRTupSlope),vpFunQC(7),False)
+        'Call displaycrv(crvobj(cLTupSlope),vpFunQC(7),False)
+
+        if stinfo.bmanren  and stinfo.blocatorsonNorm then
+        list(0)=cstart
+        list(1)=cUpintstart
+        List(2)=cUpintend
+        for i =0 to 2
+            if locobj(list(i)).displayed then
+                deletelocator locobj(list(i)).locRA
+                status=setlocobj(locobj(),list(i),crvobj(cLateMaster).crvRA)
+                locobj(list(i)).locRA.interactiveon=false
+                locobj(list(i)).displayed=true
+                    addnotify locobj(list(i)).locRA,"locEM"&cstr(list(i)),NOTIF_END_MOVE
+                    addnotify locobj(list(i)).locRA,"locStart"&cstr(list(i)),NOTIF_START
+            end if
+         next
+         stinfo.blocatorsonnorm=false
+    end if
+    end if
+    For i=cFITLTBKGSUBKidney To cFITcollectingsystemROI
+            Call displaycrv(crvobj(i),vpFunQC(7),false)
+    Next
+    vpFunQC(7).footer="Function"
+    cinePlay vpFunQC(3)
+    display scrnFunctionQC
+    lockcontrols false
+End sub
+
+
+
+sub DisplayDiureticQC(scrnDiureticQC As screen,strTdiuQC As String,img() As image,roiobj() As roiobject,crvobj() As curveobject,locobj() As locatorobject,strcellname() As String,strAnnImg() As String,_
+STinfo As studyinfo)
+    Dim i As Integer
+    Dim vpheader As viewport
+    Dim Protocolstr As String
+    dim status as boolean
+    If scrnDiureticQC Is Nothing Then
+        idiuQC(0)=cSummedDiu
+        idiuQC(1)=cFrameperminuteDiu
+        idiuQC(2)=cFull
+        idiuQC(3)=cEmpty
+        idiuQC(4)=cinjection
+        Set scrndiureticQC=createscreen("RADiuQC.rt")
+        display scrnDiureticQC
+        status = SelectTools(TRUE,ANNOT_TOOL, COLORMAP_TOOL,CINE_TOOL,SCROLL_TOOL,PANZOOM_TOOL)
+        Set vpheader=getviewport("Title")
+        Call CustFillScreenHeader (img,Protocolstr,strTdiuQC,vpheader)
+
+        For i=0 To 4
+            Set vpdiuQC(i)=getviewport(strCellname(idiuQC(i)))
+            Set vpdiuQC(i).color=stinfo.igencustvar(cColorMAP)
+            Set vpdiuQC(i).LabelFormat=NONE_FORMAT
+            Set vpLdiuQC(i)=getviewport("L"+strCellname(idiuQC(i)))
+
+            If img(idiuQC(i)) Is Not Nothing Then
+                display img(idiuQC(i)),vpdiuQC(i)
+                If img(idiuQC(i)).length>1 Then
+                   Set vpdiuQC(i).LabelFormat=NUMBER_ONLY_FORMAT
+                Else
+                    Set vpdiuQC(i).LabelFormat=NONE_FORMAT
+                End If
+
+                Set andiuQC(i)=annottext(vpldiuQC(i),0,0.5,strannimg(idiuQC(i)))
+
+            End If
+            disable vpLdiuQC(i),true
+        Next
+        for i=2 to 4
+            vpDIUQC(i).labelformat=ACQ_FORMAT
+        next
+        Set vpdiuQC(5)=getviewport("LGraph")
+
+    End If
+    lockcontrols true
+    clear vpdiuQC(5)
+    Call displaycrv(crvobj(cLtBKgSubKidney),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cRtBKGSubKidney),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cBKGSubKidney),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cLtBKgSubCortical),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cRtBKGSubCortical),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cBKGSubCortical),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cBladderROI),vpdiuQC(5),true)
+    Call displaycrv(crvobj(cLateMaster),vpdiuQC(5),False)
+    Call displaycrv(crvobj(cRTupSlope),vpdiuQC(5),False)
+    Call displaycrv(crvobj(cLTupSlope),vpdiuQC(5),False)
+    Call displaycrv(crvobj(cLateMaster),vpdiuQC(5),False)
+    For i=cFITLTBKGSUBKidney To cFITcollectingsystemROI
+            Call displaycrv(crvobj(i),vpdiuQC(5),false)
+    Next
+    vpdiuQC(5).footer="Function"
+    cinePlay vpdiuQC(1)
+    display scrndiureticQC
+    lockcontrols false
+End sub
+
+
+
+
+
+
+
+
+sub DisplayDynamicImage(scrnDyn As screen,strTDynRev As String,img() As image,roiobj() As roiobject,locobj() As locatorobject,strcellname() As String,strAnnImg() As String,stinfo as studyinfo)
+        Dim i As Integer
+    Dim vpheader As viewport
+    Dim Protocolstr As String
+    Dim status As Boolean
+    Dim ival As Integer
+    Dim dbval As Variant
+    Dim frameoffset As Integer
+    dim strRT as string
+    iDyn(0)=cFirstReframed
+        iDyn(1)=cSecondReframed
+        idyn(2)=cReframedDiu
+        idyn(3)=cPrevoidK
+        idyn(4)=cPostvoidK
+        idyn(5)=cprevoidB
+        idyn(6)=cpostvoidB
+        if img(iDyn(0)) is not nothing then
+        ival=getattribvalue(img(iDyn(0)),"Dataset","PhaseFrameDuration",dbval,1)
+        frameoffset=locobj(cStart).xpos*1000/cdbl(dbval)
+
+        If frameoffset<1 Then
+            frameoffset=1
+        end if
+    else
+        frameoffset=1
+    end if
+
+        If scrnDyn Is Nothing Then
+
+                if img(idyn(0)) is not nothing then
+                    if img(idyn(2)) is not nothing then
+                        strRT=strRADyn4
+                    else
+                        strRT=strRADyn2
+                    end if
+                else
+                   if img(idyn(2)) is not nothing then
+                      strRT=strRADyn3
+                   else
+                      strRT=strRADyn1
+                   end if
+                end if
+
+                set scrndyn=createscreen(strRT)
+                        display scrnDyn
+                status = SelectTools(TRUE,ANNOT_TOOL, COLORMAP_TOOL,CINE_TOOL,SCROLL_TOOL,PANZOOM_TOOL)
+                for i=0 to 2
+                    if img(iDyn(i)) is not nothing then
+                ival=getattribvalue(img(iDyn(i)),"Dataset","PhaseFrameDuration",dbval,1)
+                If dbval/60000>=1 Then
+                    strannimg(iDyn(i))=cstr(dbval/60000)+" min"+strannimg(iDyn(i))
+                Else
+                    strannimg(iDyn(i))=cstr(dbval/1000)+" sec"+strannimg(iDyn(i))
+                End If
+
+               end if
+            next
+
+            Set vpheader=getviewport("Title")
+            Call CustFillScreenHeader (img,Protocolstr,strTDynREV,vpheader)
+            For i=0 To 4
+                If img(iDyn(i)) Is Not Nothing Then
+                            Set vpDyn(i)=getviewport(strCellname(iDyn(i)))
+                            Set vpDyn(i).color=stinfo.igencustvar(cColorMAP)
+                            Set vpDyn(i).LabelFormat=NONE_FORMAT
+                            Set vpLDyn(i)=getviewport("L"+strCellname(iDyn(i)))
+                            Set anDyn(i)=annottext(vplDyn(i),0,0.5,strannimg(iDyn(i)))
+                    disable vpLDyn(i),true
+
+                End If
+                Next
+                if vpdyn(0) is not nothing then
+                            vpformat vpdyn(0),2,8
+                        end if
+                        if vpdyn(1) is not nothing then
+                            vpformat vpdyn(1),3,8
+                        end if
+                        if vpdyn(2) is not nothing then
+                            vpformat vpdyn(2),2,8
+            end if
+            for i=0 to 4
+                 If img(iDyn(i)) Is Not Nothing and vpdyn(i) is not nothing Then
+                                display img(iDyn(i)),vpDyn(i)
+                                If img(iDyn(i)).length>1 Then
+                      Set vpDyn(i).LabelFormat=NUMBER_ONLY_FORMAT
+                End If
+                             end if
+                        next
+                        status=setwinmax(vpDyn(0),roiobj(),0,true)
+
+    End If
+    display scrndyn
+    if vpdyn(0) is not nothing then
+                 vpdyn(0).displayframe=frameoffset
+
+        end if
+End sub
+
+
+sub RenalanalysisReview (scrnRAReview As screen,strTclinSum As String, _
+         img() As image,roiobj() As roiobject,crvobj() As curveobject,locobj() As locatorobject,strcellname() As String,strAnnImg() As String,strSTinfo() As String,STinfo As studyinfo)
+    Dim i As Integer, j as integer
+    Dim vpheader As viewport
+    Dim ProtocolStr As String
+    Dim status As Boolean
+    Dim dbval As Variant
+    Dim frameoffset As Integer
+    Dim ival As Integer
+    dim suffix as string
+    dim list(10) as integer
+
+
+    If img(c1_30sec) Is Not Nothing Then
+        stinfo.bperfusion=true
+    End If
+    iRAR(0)=cFirstReframed
+    iRAR(1)=cSecondReframed
+    if stinfo.igencustvar(cCineReview)=0 then
+        iRAR(2)=c1_30sec
+        iRAR(3)=cUptakeinterval
+        suffix=".rt"
+    else
+          iRAR(2)=cFirstPhase
+          iRAR(3)=cFrameperMinute
+          suffix="Cine.rt"
+    end if
+    iRAR(4)=cPrevoidK
+    iRAR(5)=cPostvoidK
+    iRAR(10)=cReframedDiu
+    If stinfo.bperfusion=true Then
+        ival=getattribvalue(img(iRAR(0)),"Dataset","PhaseFrameDuration",dbval,1)
+        frameoffset=locobj(cStart).locRA.xpos*1000./dbval
+        If frameoffset<1 Then
+             frameoffset=1
+        End If
+    Else
+        frameoffset=1
+
+    End If
+        If scrnRAReview Is Nothing Then
+
+        If img(iRAR(0)) Is Not Nothing Then     'if perfusion image exists
+                    If img(iRAR(10)) Is Not Nothing Then
+                     Set scrnRAReview=createscreen(left$(strRARev,len(strRARev)-3)+suffix)
+                     Else
+                     Set scrnRAReview=createscreen(left$(strRARevND,len(strRARevND)-3)+suffix)
+                    End If
+            Else
+                If img(iRAR(10)) Is Not Nothing Then
+                    Set scrnRAReview=createscreen(left$(strRARevNP,len(strRARevNP)-3)+suffix)
+                Else
+                    Set scrnRAReview=createscreen(left$(strRARevNPND,len(strRARevNPND)-3)+suffix)
+                    End If
+            End If
+
+            display scrnRAReview
+            status = SelectTools(TRUE,ANNOT_TOOL, COLORMAP_TOOL,CINE_TOOL,SCROLL_TOOL,PANZOOM_TOOL)
+        Set vpheader=getviewport("Title")
+        Call CustFillScreenHeader (img,Protocolstr,strTclinSum,vpheader)
+        For i=0 To 5
+            If img(iRAR(i)) Is Not Nothing Then
+                Set vpRAR(i)=getviewport(strCellname(iRAR(i)))
+                        Set vpRAR(i).color=stinfo.igencustvar(cColorMAP)
+                        Set vpRAR(i).LabelFormat=NONE_FORMAT
+            End If
+        Next
+        If img(iRAR(10)) Is Not Nothing Then
+            Set vpRAR(10)=getviewport(strCellname(iRAR(10)))
+                Set vpRAR(10).color=stinfo.igencustvar(cColorMAP)
+                    Set vpRAR(10).LabelFormat=NONE_FORMAT
+        End If
+
+        If img(iRAR(0)) Is Not Nothing Then
+            If img(iRAR(10)) Is Not Nothing Then
+                vpformat vpRAR(0),1,8
+                vpformat vpRAR(1),3,8
+                vpformat vpRAR(10),2,8
+            Else
+                vpformat vpRAR(0),2,8
+                vpformat vpRAR(1),3,8
+            End If
+        Else
+            If img(iRAR(10)) Is Not Nothing Then
+                vpformat vpRAR(1),3,8
+                vpformat vpRAR(10),2,8
+            Else
+                vpformat vpRAR(1),5,8
+            End If
+        End If
+        For i=0 To 5
+            If img(iRAR(i)) Is Not Nothing  Then
+                display img(iRAR(i)),vpRAR(i)
+                If img(iRAR(i)).length>1 Then
+                    Set vpRAR(i).LabelFormat=NUMBER_ONLY_FORMAT
+                End If
+            End If
+
+        Next
+        If img(iRAR(10)) Is Not Nothing Then
+            display img(iRAR(10)),vpRAR(10)
+            If img(iRAR(10)).length>1 Then
+                 Set vpRAR(10).LabelFormat=NUMBER_ONLY_FORMAT
+            End If
+        End If
+
+
+
+
+
+        For i=2 To 5
+                    If img(iRAR(i)) Is Not Nothing Then
+                Set vpLRAR(i)=getviewport("L"+strCellname(iRAR(i)))
+                        Set anRAR(i)=annottext(vplRAR(i),0,0.5,strannimg(iRAR(i)))
+                disable vpLRAR(i),true
+            End If
+            Next
+        Set vpRAR(6)=getviewport("EGraph")
+        Set vpRAR(7)=getviewport("LGraph")
+        Set vpRAR(8)=getviewport("STInfo")
+        Set vpRAR(9)=getviewport("Clear")
+        For i=ckid To cColl
+            For j=0 To 2
+                Set vpcrvinfo(i,j)=getviewport("CInfo"+cstr(i)+cstr(j))
+            Next
+        Next
+        For j=0 To 2
+            Set vpKidinfo(j)=getviewport("KInfo"+cstr(j))
+        Next
+        status=setwinmax(vpRAR(0),roiobj(),0,true)
+        status=setwinmax(vpRAR(2),roiobj(),0,false)
+    End If
+
+    lockcontrols true
+    If vpRAR(6) Is Not Nothing Then
+        clear vpRAR(6)
+    End If
+    clear vpRAR(7)
+    clear vpRAR(8)
+    clear vpRAR(9)
+    For i=ckid To cColl
+        For j=0 To 2
+            clear vpcrvinfo(i,j)
+        Next
+    Next
+    For j=0 To 2
+        clear vpKidinfo(j)
+    Next
+    status=createAnnotations(stinfo,strSTInfo)
+
+    if stinfo.bMANREN=false or (stinfo.bMANREN=true and stinfo.battcor=false) then
+            Call displaycrv(crvobj(cLtEarlyphase),vpRAR(6),true)
+            Call displaycrv(crvobj(cRtEarlyphase),vpRAR(6),true)
+            Call displaycrv(crvobj(cEarlyphase),vpRAR(6),true)
+            Call displaycrv(crvobj(cScaledBolus),vpRAR(6),true)
+            Call displaycrv(crvobj(cEarlyMaster),vpRAR(6),False)
+        else
+                Call displaycrv(crvobj(cLtNormEarlyphase),vpRAR(6),true)
+            Call displaycrv(crvobj(cRtNormEarlyphase),vpRAR(6),true)
+            Call displaycrv(crvobj(cNormEarlyphase),vpRAR(6),true)
+            Call displaycrv(crvobj(cNormBolus),vpRAR(6),true)
+            Call displaycrv(crvobj(cNormEarlyMaster),vpRAR(6),False)
+        end if
+
+
+
+
+        if stinfo.bMANREN=false or (stinfo.bMANREN=true and stinfo.battcor=false and stinfo.bpatlak=false) then
+        Call displaycrv(crvobj(cLtBKgSubKidney),vpRAR(7),true)
+        Call displaycrv(crvobj(cRtBKGSubKidney),vpRAR(7),true)
+        Call displaycrv(crvobj(cLateMaster),vpRAR(7),False)
+        Call displaycrv(crvobj(cBKGSubKidney),vpRAR(7),true)
+            Call displaycrv(crvobj(cLtBKgSubCortical),vpRAR(7),true)
+            Call displaycrv(crvobj(cRtBKGSubCortical),vpRAR(7),true)
+            Call displaycrv(crvobj(cBKGSubCortical),vpRAR(7),true)
+        Call displaycrv(crvobj(cBladderROI),vpRAR(7),true)
+        elseif stinfo.bmanren=true and stinfo.battcor=true then 'and attenuation corrected function kidneys were created
+
+
+
+            Call displaycrv(crvobj(cLtNormKidney),vpRAR(7),true)
+
+            Call displaycrv(crvobj(cRtNormKidney),vpRAR(7),true)
+            Call displaycrv(crvobj(cNormKidney),vpRAR(7),true)
+            Call displaycrv(crvobj(cLtNormCortical),vpRAR(7),true)
+            Call displaycrv(crvobj(cRtNormCortical),vpRAR(7),true)
+            Call displaycrv(crvobj(cNormCortical),vpRAR(7),true)
+        Call displaycrv(crvobj(cBladderROI),vpRAR(7),true)
+                Call displaycrv(crvobj(cNormMaster),vpRAR(7),False)
+
+
+                if stinfo.blocatorsonNorm=false then
+            if stinfo.bperfusion=false then
+                    list(0)=cstart
+                    list(1)=cUpintstart
+                    List(2)=cUpintend
+                    j=2
+                    else
+                        'list(0)=cstart
+                    list(0)=cPerIndxEnd
+                    List(1)=cPerintStart
+                    List(2)=cPerintEnd
+                    j=2
+                    for i =0 to j
+                        if locobj(list(i)).displayed then
+                            deletelocator locobj(list(i)).locRA
+                            status=setlocobj(locobj(),list(i),crvobj(cNormEarlyMaster).crvRA)
+                            locobj(list(i)).locRA.interactiveon=false
+                            locobj(list(i)).displayed=true
+                        end if
+                    next
+                    List(0)=cUpintStart
+                    List(1)=cUpintend
+                    j=1
+                end if
+                for i =0 to j
+                    if locobj(list(i)).displayed then
+                        deletelocator locobj(list(i)).locRA
+                        status=setlocobj(locobj(),list(i),crvobj(cNormMaster).crvRA)
+                        locobj(list(i)).locRA.interactiveon=false
+                        locobj(list(i)).displayed=true
+                    end if
+                next
+                stinfo.blocatorsonnorm=true
+            end if
+
+        elseif stinfo.bPatlak=true and stinfo.battcor=false then
+              Call displaycrv(crvobj(cLtVascSubKidney),vpRAR(7),true)
+              Call displaycrv(crvobj(cRtVascSubKidney),vpRAR(7),true)
+              Call displaycrv(crvobj(cVascSubKidney),vpRAR(7),true)
+              Call displaycrv(crvobj(cLtVascSubCortical),vpRAR(7),true)
+              Call displaycrv(crvobj(cRtVascSubCortical),vpRAR(7),true)
+              Call displaycrv(crvobj(cVascSubCortical),vpRAR(7),true)
+          Call displaycrv(crvobj(cBladderROI),vpRAR(7),true)
+              Call displaycrv(crvobj(cLateMaster),vpRAR(7),False)
+              if stinfo.bmanren=true  and stinfo.battcor=false then
+            list(0)=cstart
+                list(1)=cUpintstart
+            List(2)=cUpintend
+            for i =0 to 2
+                status=Hidelocobj(locobj(),i)
+                'if locobj(list(i)).displayed then
+                '   deletelocator locobj(list(i)).locRA
+                    status=setlocobj(locobj(),list(i),crvobj(cLateMaster).crvRA)
+                    locobj(list(i)).locRA.interactiveon=false
+                    'locobj(list(i)).displayed=true
+                        'end if
+             next
+            stinfo.blocatorsonnorm=false
+              end if
+        end if
+    If vpRAR(6) Is Not Nothing Then
+        vpRAR(6).footer="Perfusion"
+        disable vpRAR(6),true
+    End If
+    If vpRAR(7) Is Not Nothing Then
+        vpRAR(7).footer="Function"
+        disable vpRAR(7),true
+    End If
+    Set annSTinfo=annottext(vpRAR(8),0,0.1,strannSTInfo)
+    annSTinfo.outlinecolor=WHITE
+    annSTinfo.interactiveon=false
+    If Len(strannClearance)>0 Then
+        Set annClearance=annottext(vpRAR(9),0,0.3,strannClearance)
+        annClearance.outlinecolor=YELLOW
+        annClearance.interactiveon=false
+    End If
+
+    disable vpRAR(8),true
+    disable vpRAR(9),true
+    Set annKidneyinfo(0)=annottext(vpKidinfo(0),0,0.1,strannKidneyinfo(0))
+    annKidneyinfo(0).outlinecolor=WHITE
+    annKidneyinfo(0).interactiveon=false
+    disable vpKidinfo(0),true
+    Select Case STinfo.iKidneyState
+        Case cTwokidneys
+            For i=1 To 2
+                If Len(strannKIdneyinfo(i))>0 Then
+                    Set annKidneyinfo(i)=annottext(vpKidinfo(i),0.1,0.1,strannKidneyinfo(i))
+                    annKidneyinfo(1).interactiveon=false
+                    disable vpKidinfo(i),true
+                End If
+            Next
+            If annKidneyinfo(1) Is Not Nothing Then
+                annKidneyinfo(1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                annKidneyinfo(1).interactiveon=false
+            End If
+            If annKidneyinfo(2) Is Not Nothing Then
+                annKidneyinfo(2).outlinecolor=Roiobj(cRTFunKidneyroi).outlinecolor
+                annKidneyinfo(2).interactiveon=false
+            End If
+        case cleftkidneyonly
+
+            If Len(strannKIdneyinfo(1))>0 Then
+                Set annKidneyinfo(1)=annottext(vpKidinfo(1),0.1,0.1,strannKidneyinfo(1))
+                annKidneyinfo(1).interactiveon=false
+                disable vpKidinfo(1),true
+            End If
+
+            If annKidneyinfo(1) Is Not Nothing Then
+                annKidneyinfo(1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                annKidneyinfo(1).interactiveon=false
+            End If
+
+
+
+
+        case crightkidneyonly
+            If Len(strannKIdneyinfo(2))>0 Then
+                Set annKidneyinfo(2)=annottext(vpKidinfo(1),0.1,0.1,strannKidneyinfo(2))
+                annKidneyinfo(2).interactiveon=false
+                disable vpKidinfo(1),true
+            End If
+
+            If annKidneyinfo(2) Is Not Nothing Then
+                annKidneyinfo(2).outlinecolor=Roiobj(cRtFunkidneyroi).outlinecolor
+                annKidneyinfo(2).interactiveon=false
+            End If
+
+
+        Case cTransplant,cOtherKidney
+            Set annKidneyinfo(STinfo.ikidneyState)=annottext(vpKidinfo(1),0.1,0.1,strannKidneyinfo(STinfo.ikidneyState))
+            annKidneyinfo(STInfo.ikidneyState).outlinecolor=Roiobj(cFunkidneyroi).outlinecolor
+            annKidneyinfo(STInfo.ikidneyState).interactiveon=false
+            disable vpKidinfo(1),true
+    End Select
+
+    For i=1 To 3
+        If Len(strannCurveinfo(i,0))>0 Then
+            Set annCurveinfo(i,0)=annottext(vpcrvinfo(i,0),0,0.1,strannCurveinfo(i,0))
+            annCurveinfo(i,0).outlinecolor=WHITE
+            annCurveinfo(i,0).interactiveon=false
+        End If
+        disable vpcrvinfo(i,0),true
+    Next
+    Select Case  stinfo.ikidneystate
+        Case cTwoKidneys
+            For i=1 To 3
+                For j=1 To 2
+                    If Len(strannCurveinfo(i,j))>0 Then
+                        Set annCurveinfo(i,j)=annottext(vpcrvinfo(i,j),0.1,0.1,strannCurveinfo(i,j))
+                    End If
+                    disable vpcrvinfo(i,j),true
+                Next
+            Next
+            For i= 1 To 3
+                If annCurveinfo(i,1) Is Not Nothing Then
+                    annCurveinfo(i,1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                    annCurveinfo(i,1).interactiveon=false
+                End If
+                If annCurveinfo(i,2) Is Not Nothing Then
+                    annCurveinfo(i,2).outlinecolor=Roiobj(cRTFunKidneyroi).outlinecolor
+                    annCurveinfo(i,2).interactiveon=false
+                End If
+            Next
+        case cleftkidneyonly
+            For i=1 To 3
+                If Len(strannCurveinfo(i,1))>0 Then
+                    Set annCurveinfo(i,1)=annottext(vpcrvinfo(i,1),0.1,0.1,strannCurveinfo(i,1))
+                End If
+                disable vpcrvinfo(i,1),true
+
+            Next
+            For i= 1 To 3
+                If annCurveinfo(i,1) Is Not Nothing Then
+                    annCurveinfo(i,1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                    annCurveinfo(i,1).interactiveon=false
+                End If
+
+            Next
+        case cRightKidneyonly
+                For i=1 To 3
+                If Len(strannCurveinfo(i,2))>0 Then
+                    Set annCurveinfo(i,2)=annottext(vpcrvinfo(i,1),0.1,0.1,strannCurveinfo(i,2))
+                End If
+                disable vpcrvinfo(i,1),true
+
+            Next
+            For i= 1 To 3
+                If annCurveinfo(i,2) Is Not Nothing Then
+                    annCurveinfo(i,2).outlinecolor=Roiobj(cRtFunkidneyroi).outlinecolor
+                    annCurveinfo(i,2).interactiveon=false
+                End If
+
+            Next
+
+
+        Case cTransplant,cOtherKidney
+                For i=1 To 3
+                    If Len(strannCurveinfo(i,0))>0 Then
+                        Set annCurveinfo(i,stinfo.ikidneystate)=annottext(vpcrvinfo(i,1),0,0.1,strannCurveinfo(i,stinfo.ikidneyState))
+                        annCurveinfo(i,STinfo.ikidneyState).outlinecolor=Roiobj(cFunkidneyroi).outlinecolor
+                        annCurveinfo(i,STinfo.ikidneyState).interactiveon=false
+                    End If
+                    disable vpcrvinfo(i,1),true
+                Next
+    End Select
+    display scrnRAreview
+        If img(iRAR(0)) Is Not Nothing Then
+        vpRAR(0).displayframe=frameoffset
+    Else
+        vpRAR(1).displayframe=frameoffset
+    End If
+        if stinfo.igencustvar(cCineReview)=1 then
+            for i=2 to 3 step 1
+               cineplay vpRAR(i)
+            next
+        end if
+    lockcontrols false
+End sub
+
+
+
+
+
+
+Function getstrSTandkidneyinfo(STinfo As studyinfo,strSTinfo() As String,strannCBC() As String) As Boolean
+    Dim status As Boolean
+    dim i as integer
+    For i=3 To 6
+        strannCBC(i)=""
+    Next
+    status=CreateAnnotations(STinfo,strSTInfo())
+    stranncbc(3)=strannSTinfo
+    stranncbc(4)=strannKidneyinfo(0)
+    Select Case STinfo.ikidneyState
+        Case ctwokidneys
+            strannCBC(5)=strannKidneyinfo(1)
+            strannCBC(6)=strannKidneyinfo(2)
+        Case Else
+            strannCBC(5)=strannKidneyinfo(STinfo.ikidneystate)
+    End Select
+    stranncbc(7)=strannclearance
+    getstrSTandkidneyinfo=true
+End Function
+
+
+
+
+sub RenogramReview(scrnRNGReview As screen,strTRenRev As String,img() As image,roiobj() As roiobject,crvobj() As curveobject,locobj() As locatorobject, _
+strcellname() As String,strAnnImg() As String,strSTInfo() As String,STinfo As studyinfo)
+    Dim i As Integer
+    Dim j As Integer
+    Dim vpheader As viewport
+    Dim ProtocolStr As String
+    Dim status As Boolean
+    dim list(10) as integer
+    If img(c1_30sec) Is Not Nothing Then
+        stinfo.bperfusion=true
+    End If
+    If scrnRNGReview Is Nothing Then
+        iRNGR(0)=cUptakeinterval
+        iRNGR(1)=cFrameperminute
+        Set scrnRNGReview=createscreen(strRNGRev)
+        display scrnRNGReview
+        status = SelectTools(TRUE,ANNOT_TOOL, COLORMAP_TOOL,CINE_TOOL,SCROLL_TOOL,PANZOOM_TOOL)
+        Set vpheader=getviewport("Title")
+        Call CustFillScreenHeader (img,Protocolstr,strTrenREV,vpheader)
+        For i=0 To 1
+            Set vpRNGR(i)=getviewport(strCellname(iRNGR(i)))
+            Set vpLRNGR(i)=getviewport("L"+strCellname(iRNGR(i)))
+            Set vpRNGR(i).color=stinfo.igencustvar(cColorMAP)
+            Set vpRNGR(i).LabelFormat=NONE_FORMAT
+            If img(iRNGR(i)) Is Not Nothing Then
+                display img(iRNGR(i)),vpRNGR(i)
+                 If i=1 Then
+                    Set anRNGR(i)=annottext(vplRNGR(i),0,0.5,strannimg(iRNGR(i)))
+                 Else
+                    Set anRNGR(i)=annottext(vplRNGR(i),0,0.5,"Uptake Interval")
+                 End If
+                 If img(iRNGR(i)).length>1 Then
+                      Set vpRNGR(i).LabelFormat=NUMBER_ONLY_FORMAT
+                 End If
+            End If
+            disable vpLRNGR(i),true
+        Next
+        Set vpRNGR(3)=getviewport("GKidney")
+        Set vpRNGR(4)=getviewport("GCortex")
+        Set vpRNGR(5)=getviewport("GColl")
+        Set vpRNGR(6)=getviewport("STInfo")
+        Set vpRNGR(7)=getviewport("Clear")
+        For i=ckid To cColl
+            For j=0 To 2
+                Set vpRNGcrvinfo(i,j)=getviewport("CInfo"+cstr(i)+cstr(j))
+            Next
+        Next
+        For j=0 To 2
+            Set vpRNGKidinfo(j)=getviewport("KInfo"+cstr(j))
+        Next
+  End If
+  lockcontrols true
+  clear vpRNGR(3)
+  clear vpRNGR(4)
+  clear vpRNGR(5)
+  clear vpRNGR(6)
+  clear vpRNGR(7)
+  For i=ckid To cColl
+        For j=0 To 2
+            clear vpRNGcrvinfo(i,j)
+        Next
+    Next
+    For j=0 To 2
+        clear vpRNGKidinfo(j)
+    Next
+
+  status=createAnnotations(stinfo,strSTInfo())
+
+
+
+
+
+
+
+
+
+  '1234
+  if stinfo.bmanren=false or (stinfo.bMANREN=true and stinfo.battcor=false and stinfo.bpatlak=false) then
+    Call displaycrv(crvobj(cLtBKgSubKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cRtBKGSubKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cBKGSubKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cLateMaster),vpRNGR(3),False)
+        Call displaycrv(crvobj(cLtBKgSubCortical),vpRNGR(4),true)
+        Call displaycrv(crvobj(cRtBKGSubCortical),vpRNGR(4),true)
+        Call displaycrv(crvobj(cBKGSubCortical),vpRNGR(4),true)
+    Call displaycrv(crvobj(cLtBKGsubCollectingSystem),vpRNGR(5),true)
+        Call displaycrv(crvobj(cRtBKGsubCollectingSystem),vpRNGR(5),true)
+        Call displaycrv(crvobj(cBKGsubCollectingSystem),vpRNGR(5),true)
+        Call displaycrv(crvobj(cBladderROI),vpRNGR(5),true)
+    elseif stinfo.battcor=true then
+        Call displaycrv(crvobj(cLtNormKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cRtNormKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cNormKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cLtNormCortical),vpRNGR(4),true)
+        Call displaycrv(crvobj(cRtNormCortical),vpRNGR(4),true)
+        Call displaycrv(crvobj(cNormCortical),vpRNGR(4),true)
+    Call displaycrv(crvobj(cNormBladder),vpRNGR(5),true)
+        Call displaycrv(crvobj(cNormMaster),vpRNGR(3),False)
+        Call displaycrv(crvobj(cLtNormCollectingSystem),vpRNGR(5),true)
+        Call displaycrv(crvobj(cRtNormCollectingSystem),vpRNGR(5),true)
+        Call displaycrv(crvobj(cNormCollectingSystem),vpRNGR(5),true)
+
+
+
+    if stinfo.bmanren and stinfo.blocatorsonNorm=false then
+        if stinfo.bperfusion=false then
+                list(0)=cstart
+                list(1)=cUpintstart
+                List(2)=cUpintend
+                j=2
+                else
+                    'list(0)=cstart
+                list(0)=cPerIndxEnd
+                List(1)=cPerintStart
+                List(2)=cPerintEnd
+                j=2
+                for i =0 to j
+                    if locobj(list(i)).displayed then
+                        deletelocator locobj(list(i)).locRA
+                        status=setlocobj(locobj(),list(i),crvobj(cNormEarlyMaster).crvRA)
+                        locobj(list(i)).locRA.interactiveon=false
+                        locobj(list(i)).displayed=true
+                    end if
+                next
+                List(0)=cUpintStart
+                List(1)=cUpintend
+                j=1
+            end if
+            for i =0 to j
+                if locobj(list(i)).displayed then
+                    deletelocator locobj(list(i)).locRA
+                    status=setlocobj(locobj(),list(i),crvobj(cNormMaster).crvRA)
+                    locobj(list(i)).locRA.interactiveon=false
+                    locobj(list(i)).displayed=true
+                end if
+             next
+            stinfo.blocatorsonnorm=true
+        end if
+
+    else
+
+        Call displaycrv(crvobj(cLtVascSubKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cRtVascSubKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cVascSubKidney),vpRNGR(3),true)
+        Call displaycrv(crvobj(cLtVascSubCortical),vpRNGR(4),true)
+        Call displaycrv(crvobj(cRtVascSubCortical),vpRNGR(4),true)
+        Call displaycrv(crvobj(cVascSubCortical),vpRNGR(4),true)
+    Call displaycrv(crvobj(cBladderROI),vpRNGR(5),true)
+        Call displaycrv(crvobj(clateMaster),vpRNGR(3),False)
+    if stinfo.bmanren and stinfo.blocatorsonNorm=true then
+            list(0)=cstart
+            list(1)=cUpintstart
+            List(2)=cUpintend
+            for i =0 to 2
+                if locobj(list(i)).displayed then
+                    deletelocator locobj(list(i)).locRA
+                    status=setlocobj(locobj(),list(i),crvobj(clateMaster).crvRA)
+                    locobj(list(i)).locRA.interactiveon=false
+                    locobj(list(i)).displayed=true
+                end if
+             next
+            stinfo.blocatorsonnorm=false
+        end if
+   end if
+
+
+    'vpRNGR(6).footer="Perfusion"
+    'vpRNGR(7).footer="Function"
+    Set annSTinfo=annottext(vpRNGR(6),0,0.1,strannSTInfo)
+    annSTinfo.outlinecolor=WHITE
+    annSTinfo.interactiveon=false
+    If Len(strannClearance)>0 Then
+        Set annClearance=annottext(vpRNGR(7),0,0.3,strannClearance)
+        annClearance.outlinecolor=YELLOW
+        annSTinfo.interactiveon=false
+    End If
+
+    For i=6 To 8
+        disable vpRNGR(i),true
+    Next
+
+    Set annKidneyinfo(0)=annottext(vpRNGKidinfo(0),0,0.1,strannKidneyinfo(0))
+    annKidneyinfo(0).outlinecolor=WHITE
+    annKidneyinfo(0).interactiveon=false
+    disable vpRNGKidinfo(0),true
+    Select Case STinfo.iKidneyState
+        Case cTwokidneys
+            For i=1 To 2
+                If Len(strannKIdneyinfo(i))>0 Then
+                    Set annKidneyinfo(i)=annottext(vpRNGKidinfo(i),0.1,0.1,strannKidneyinfo(i))
+                    annKidneyinfo(1).interactiveon=false
+                    disable vpRNGKidinfo(i),true
+                End If
+            Next
+            If annKidneyinfo(1) Is Not Nothing Then
+                annKidneyinfo(1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                annKidneyinfo(1).interactiveon=false
+            End If
+            If annKidneyinfo(2) Is Not Nothing Then
+                annKidneyinfo(2).outlinecolor=Roiobj(cRTFunKidneyroi).outlinecolor
+                annKidneyinfo(2).interactiveon=false
+            End If
+        case cLeftKidneyonly
+            If Len(strannKIdneyinfo(1))>0 Then
+                Set annKidneyinfo(1)=annottext(vpRNGKidinfo(1),0.1,0.1,strannKidneyinfo(1))
+                annKidneyinfo(1).interactiveon=false
+                disable vpRNGKidinfo(1),true
+            End If
+
+            If annKidneyinfo(1) Is Not Nothing Then
+                annKidneyinfo(1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                annKidneyinfo(1).interactiveon=false
+            End If
+
+
+
+        case cRightkidneyonly
+            If Len(strannKIdneyinfo(2))>0 Then
+                Set annKidneyinfo(2)=annottext(vpRNGKidinfo(1),0.1,0.1,strannKidneyinfo(2))
+                annKidneyinfo(2).interactiveon=false
+                disable vpRNGKidinfo(1),true
+            End If
+
+            If annKidneyinfo(2) Is Not Nothing Then
+                annKidneyinfo(2).outlinecolor=Roiobj(cRtFunkidneyroi).outlinecolor
+                annKidneyinfo(2).interactiveon=false
+            End If
+
+
+
+        Case cTransplant,cOtherKidney
+            Set annKidneyinfo(STinfo.ikidneyState)=annottext(vpRNGKidinfo(1),0.1,0.1,strannKidneyinfo(STinfo.ikidneyState))
+            annKidneyinfo(STInfo.ikidneyState).outlinecolor=Roiobj(cFunkidneyroi).outlinecolor
+            annKidneyinfo(STInfo.ikidneyState).interactiveon=false
+            disable vpRNGKidinfo(1),true
+    End Select
+
+    For i=1 To 3
+        If Len(strannCurveinfo(i,0))>0 Then
+            Set annCurveinfo(i,0)=annottext(vpRNGcrvinfo(i,0),0,0.1,strannCurveinfo(i,0))
+            annCurveinfo(i,0).outlinecolor=WHITE
+            annCurveinfo(i,0).interactiveon=false
+        End If
+        disable vpRNGcrvinfo(i,0),true
+    Next
+
+
+
+
+    Select Case  stinfo.ikidneystate
+        Case cTwoKidneys
+            For i=1 To 3
+                For j=1 To 2
+                    If Len(strannCurveinfo(i,j))>0 Then
+                        Set annCurveinfo(i,j)=annottext(vpRNGcrvinfo(i,j),0.1,0.1,strannCurveinfo(i,j))
+                    End If
+                    disable vpRNGcrvinfo(i,j),true
+                Next
+            Next
+            For i= 1 To 3
+                If annCurveinfo(i,1) Is Not Nothing Then
+                    annCurveinfo(i,1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                    annCurveinfo(i,1).interactiveon=false
+                End If
+                If annCurveinfo(i,2) Is Not Nothing Then
+                    annCurveinfo(i,2).outlinecolor=Roiobj(cRTFunKidneyroi).outlinecolor
+                    annCurveinfo(i,2).interactiveon=false
+                End If
+            Next
+        case cLeftkidneyonly
+            For i=1 To 3
+
+                    If Len(strannCurveinfo(i,1))>0 Then
+                        Set annCurveinfo(i,1)=annottext(vpRNGcrvinfo(i,1),0.1,0.1,strannCurveinfo(i,1))
+                    End If
+                    disable vpRNGcrvinfo(i,1),true
+
+            Next
+            For i= 1 To 3
+                If annCurveinfo(i,1) Is Not Nothing Then
+                    annCurveinfo(i,1).outlinecolor=Roiobj(cLtFunkidneyroi).outlinecolor
+                    annCurveinfo(i,1).interactiveon=false
+                End If
+            Next
+
+
+        case crightkidneyonly
+            For i=1 To 3
+                If Len(strannCurveinfo(i,2))>0 Then
+                    Set annCurveinfo(i,2)=annottext(vpRNGcrvinfo(i,1),0.1,0.1,strannCurveinfo(i,2))
+                End If
+                disable vpRNGcrvinfo(i,1),true
+            Next
+            For i= 1 To 3
+                If annCurveinfo(i,2) Is Not Nothing Then
+                    annCurveinfo(i,2).outlinecolor=Roiobj(cRTFunKidneyroi).outlinecolor
+                    annCurveinfo(i,2).interactiveon=false
+                End If
+            Next
+
+
+        Case cTransplant,cOtherKidney
+                For i=1 To 3
+                    If Len(strannCurveinfo(i,stinfo.ikidneyState))>0 Then
+                        Set annCurveinfo(i,stinfo.ikidneystate)=annottext(vpRNGcrvinfo(i,1),0.1,0.1,strannCurveinfo(i,stinfo.ikidneyState))
+                        annCurveinfo(i,STinfo.ikidneyState).outlinecolor=Roiobj(cFunkidneyroi).outlinecolor
+                        annCurveinfo(i,STinfo.ikidneyState).interactiveon=false
+                        disable vpRNGcrvinfo(i,1),true
+                    End If
+                Next
+    End Select
+    display scrnRNGReview
+    lockcontrols false
+End sub
+
+
+
+
+
+
+sub getRTs
+    dim status as boolean
+    status=custGetParam("DynamicNPND",strRADyn1)
+            if status=false Then
+            strRADyn1="RADyn1S.rt"
+        End if
+        status=custGetParam("DynamicND",strRADyn2)
+            if status=false Then
+            strRADyn2="RADyn2S.rt"
+        End if
+        status=custGetParam("DynamicNP",strRADyn3)
+            if status=false Then
+            strRADyn3="RADyn3S.rt"
+        End if
+        status=custGetParam("Dynamic",strRADyn4)
+            if status=false Then
+            strRADyn4="RADyn4S.rt"
+        End if
+    status=custGetParam("ReviewNPND",strRARevNPND)
+    if status=false Then
+            strRARevNPND="RARevNPND.rt"
+        End if
+
+        status=custGetParam("ReviewND",strRARevND)
+        if status=false Then
+            strRARevND="RARevND.rt"
+        End if
+        status=custGetParam("ReviewNP",strRARevNP)
+        if status=false Then
+            strRARevNP="RARevNP.rt"
+        End if
+        status=custGetParam("Review",strRARev)
+        if status=false Then
+            strRARev="RARev.rt"
+        End if
+
+
+        status=custGetParam("Renogram",strRNGRev)
+            if status=false Then
+            strRNGRev="RNGRev.rt"
+        End if
+
+ End sub
+
+

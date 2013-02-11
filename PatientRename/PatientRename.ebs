@@ -1,0 +1,535 @@
+'*********************************************************************************************
+' Script to Change patient/study/series/dataset attributes. 
+'Also to allow for near-automatic renaming of frequently screwed-up entries for proper
+'dataset processing.  WARNING!  POWERFUL PROTOCOL!
+' YOU MUST EDIT LINES 73 & 77 OF THIS SCRIPT
+' Created By:  Rose Messner
+' Revised, updated, and thorougly changed by Steve Saus.
+' Version History: 
+'   2.4 - 11/19/09 - Added InstitutionID - HARDCODED
+'   2.3 - 8/9/5 - Added modality changing to DataValidation (to get rid of OT modality stuff - shouldn't touch CT or MR)
+'   2.2 - 2/3/5 - Added Mass Renaming
+'   2.1 - 8/9/4 - Added solid GE renaming. 
+'               - Added liquid GE renaming
+'               - Altered resource file (and buttons)
+'               - Combined "rename series" and "rename dataset" to "rename images" - which is what is happening now anyway.
+'   2.0 - 8/6/4 - Added accession number adding.  Damn GE's lack of commentation!  (also decided to call it a "release")
+'   1.9b        - 8/5/4     - Interactive matching made, check for maximages added
+'               - Added errorchecking to Rose's code so you can't just wipe the pt data, you have to sub a space
+'               - Added elseif to keep from bothering you with ALL renal flows!
+'               - Added thoroughly revised Rose's code to provide interactive flava!
+'   1.9a        - 8/2/4     - Began adding Renal Functions - auto-matching up functions created and debugged
+' Last Revision by Rose Messner:  2/18/98
+' *********************************************************************************************
+Const VERSION        As String = "v2.4 PatientRename" 
+
+Option Compare Text
+' Global Variables
+Dim MaxImages    As Integer     ' Number of images selected by user
+Dim ImageItems() As Image       ' Array of images selected by user
+Dim MaxCurves    As Integer     ' Number of curves selected by user
+Dim CurveItems() As Curve       ' Array of curves selected by user
+Dim number_of_vports As Integer  'The number of viewports
+Dim bobVP(16) As Viewport
+Dim bob As Variant
+Dim i As Integer
+Dim title       As Variant    ' What the image *should* be named
+'Database object declarations
+Dim patient1    As patient          
+Dim series1     As series
+Dim img1        As image
+Dim study1  As study
+Dim retval      As Integer
+Dim dbval_type  As Variant
+Dim dbval       As Variant
+'Patient Values
+Dim pName       As String
+Dim pId         As String
+'Study Values
+Dim sName       As String
+Dim sComments   As String
+'Series Values
+Dim serName     As String
+'Dataset Values
+Dim dName       As String
+
+
+' ********************************************************************************************
+' *                     Data Validate
+' *******************************************************************************************
+Function  DataValidate(dv_Message       As String,_
+                       sel_image_list() As Image,_
+                   numImages        As Integer,_
+                   sel_curve_list() As Curve,_
+                   numCurves        As Integer) As Integer
+           Dim item      As Integer
+       Dim series2 As series
+           
+        maxImages = 0
+        maxCurves = 0
+    
+        For item = 0 To numImages-1
+        Set series2 = GetSeries(sel_image_list(item))  'Modality Check begin 2.3 
+        retval = GetAttribValue(series2,"InstitutionID",dbval,1) 'InstitutionID check begin 2.4
+        If dbval = "YOUR Hospital" Then  'Note the hard-coding of this variable!
+            'It's what I want - continue.
+            Save series2
+        Else
+            reval = SetAttribValue(series2,"InstitutionID","YOUR Hospital",1) 'Note the hard-coding of this variable!
+            Save series2
+        End If      'end 2.4
+        retval = GetAttribValue(series2,"Modality",dbval,1)  'continue 2.3
+        If dbval = "OT" Then
+            reval = SetAttribValue(series2,"Modality","NM",1)
+            Save series2
+        End If      'end 2.3
+                MaxImages = MaxImages + 1
+                Redim Preserve ImageItems(MaxImages)
+                set ImageItems(item) = sel_image_list(item)
+        Next item
+  
+        For item = 0 To numCurves-1
+                MaxCurves = MaxCurves + 1
+                Redim Preserve CurveItems(MaxCurves)
+                set CurveItems(item) = sel_curve_list(item)
+        Next item
+        dv_Message = "No Error message"
+        DataValidate = 1
+End Function
+
+Rem *********************************************************************************************
+Rem  Main Subroutine
+Rem *********************************************************************************************
+Sub Main
+    Set mainScreen = CreateScreen("basic1.rt", 1)
+    If MaxImages > 16 Then
+        Msgbox "Only the first 16 images can be processed."
+        MaxImages = 16
+    End If
+    ' Checking for accession #
+    retval = GetAttribValue(ImageItems(0), "Study", "AccessionNumber", dbval)
+    If dbval = "" Then
+    '   Set img1 = ImageItems(0)
+    '   Load img1
+        Set study1 = GetStudy(ImageItems(0))
+        sName = InputBox("Enter an Accession Number", "Accession Number", dbVal)
+        accession_number_loop:
+        If (sName = "") = False Then
+            retval = SetAttribValue(study1, "AccessionNumber", sName, 1)
+        Else
+            sName = InputBox("You MUST enter an Accession Number", "Accession Number", dbVal)
+            goto accession_number_loop
+        End If
+        Save study1
+    End If
+End Sub
+
+
+' ********************************************************************************************
+' *                     Saving Dataset (for Steve's functions)
+' ********************************************************************************************
+Sub Save_Dataset(imagine As Image)
+    Load imagine
+    Set series1 = GetSeries(imagine)
+    retval = SetAttribValue(series1, "SeriesID", title, 1)
+    retval = SetAttribValue(series1, "Name", title, 1)
+    retval = SetAttribValue(imagine, "DatasetName", title, 1)
+    retval = SetAttribValue(imagine, "Name", title, 1)
+    Save imagine
+    Save series1
+End Sub
+
+' ********************************************************************************************
+' * Sir Rename-A-Lot, or How To Fix People Who Can't Be Bothered To Label Originally
+' ********************************************************************************************
+
+Sub Sir_Rename_A_Lot
+    Dim bobtext(16) As Annot    
+    Dim scratch As String
+    Dim huh As Integer
+    Dim i As Integer
+    Dim tomp(2) As Variant
+    
+    huh = MaxImages -1
+    Set mainScreen=CreateScreen("basic15.rt",1)
+    retb =  SelectTools(True,SCROLL_TOOL,CINE_TOOL,ANNOT_TOOL,COLOURMAP_TOOL,ROI_TOOL)
+    For i=0 To huh    ' This bit is lifted wholesale from the test_bone file
+        scratch = "cell" & CStr(i+1)
+        Display ImageItems(i),scratch
+        Set bobVP(i) = GetViewport(scratch)
+    Next i
+    For i=0 To huh
+        bobVP(i).Color = LINEAR
+        bobVP(i).LabelFormat = NUMBER_FORMAT
+        scratch = CStr(i+1)
+        Set bobtext(i) = AnnotText(bobVP(i),0.5,0.5,scratch)
+        bobtext(i).Font = LARGE_FONT
+    Next i
+    scratch = "" ' Resetting the string
+    For i=0 To huh
+
+retval = GetAttribValue(ImageItems(i),"Dataset","StartTime",tomp(0))
+retval = GetAttribValue(ImageItems(i),"Dataset","Date",tomp(1))
+
+     retval = GetAttribValue(ImageItems(i),"Dataset","DatasetName",dbval)
+     scratch = InputBox$("Image " & i+1 &" is currently named " & dbval & "." & Chr(10) & Chr(13) & "This image was created on " & tomp(1) & " (YYYY.MM.DD) at " & tomp(0) & Chr(10) & Chr(13) &    "Enter the proper name for this image.","Mass Rename",dbval )
+     If (scratch = "") = False Then
+        title = scratch ' setting the global parameter "title" as equal to user input
+        Save_Dataset(ImageItems(i))
+     End If
+    title = ""
+    scratch = "cell" & CStr(i+1)
+    Display ImageItems(i),scratch
+    Set bobVP(i) = GetViewport(scratch)
+
+    Next i
+    msgbox "Thank you for using  " & VERSION
+    End Sub
+
+' ********************************************************************************************
+' *                     Interactive Display and Matching - this CAN be standalone!  Woo hoo!
+' ********************************************************************************************
+Sub Display_Dataset_For_Matching(StudyName As Variant)  ' Allows user to match up stuff
+    Dim bobtext(16) As Annot    
+    Dim scratch As String
+    Dim huh As Integer
+    Dim i As Integer
+    
+    huh = MaxImages -1
+
+    Set mainScreen=CreateScreen("basic15.rt",1)
+
+    retb =  SelectTools(True,SCROLL_TOOL,CINE_TOOL,ANNOT_TOOL,COLOURMAP_TOOL,ROI_TOOL)
+    For i=0 To huh    ' This bit is lifted wholesale from the test_bone file
+        scratch = "cell" & CStr(i+1)
+        Display ImageItems(i),scratch
+        Set bobVP(i) = GetViewport(scratch)
+    Next i
+    For i=0 To huh
+        bobVP(i).Color = LINEAR
+        bobVP(i).LabelFormat = NUMBER_FORMAT
+        scratch = CStr(i+1)
+        Set bobtext(i) = AnnotText(bobVP(i),0.5,0.5,scratch)
+        bobtext(i).Font = LARGE_FONT
+    Next i
+    scratch = "" ' Resetting the string
+    scratch = InputBox$("Type the number of the image that is " & StudyName &"." & Chr(10) & Chr(13) & "Hit ENTER if no matching delay.","Matching Images and Labels")
+    If (scratch = "") = False Then
+        i = CInt(scratch) - 1   ' i is now the member of array ImageItems() that matches that variable.
+        title = StudyName   'global variable, bay-bee!
+        Save_Dataset(ImageItems(i))
+    End If
+End Sub
+
+' ********************************************************************************************
+' *                     Evaluating Renal Scan Input
+' ********************************************************************************************
+Sub Eval_Renal
+    Dim sorting_renal   ' Keeps track of what images have been allocated
+    Dim allocated As Integer  'Keeps track of how many images have been allocated
+    Dim counter As Integer
+    For counter = 0 To (MaxImages-1)    ' running through images, matching up what we can safely
+        retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetType",dbval_type)              
+        retval = GetAttribValue(ImageItems(counter), "Dataset", "DatasetName", dbval)
+        If dbval_type = 0 Then  'It's a static image - (value 0...)
+            ' I don't remember if this is case sensitive through here; we'll have to find a way for it to not be.
+            If dbval Like "PRE_SYR*" Then
+                title = "Pre-Syr"
+                Save_Dataset(ImageItems(counter))
+                sorting_renal = sorting_renal & " Pre_Syr "
+                allocated = allocated + 1
+            elseif dbval Like "MARKER*" Then
+                title = "Marker"
+                Save_Dataset(ImageItems(counter))
+                sorting_renal = sorting_renal & " Marker "
+                allocated = allocated + 1
+            elseif dbval Like "POST*" Then
+                if dbval Like "*VOID*" Then  ' Gotta doublecheck - could be posterior...
+                    title = "Post Void"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_renal = sorting_renal & " Post Void "
+                    allocated = allocated + 1
+                End If
+            elseif dbval Like "INJ*" Then
+                title = "Inj Site"
+                Save_Dataset(ImageItems(counter))
+                sorting_renal = sorting_renal & " Inj Site "
+                allocated = allocated + 1
+            End If
+        ElseIf dbval_type = 8 Then      ' Put dynamic stuff here (value 8...)
+            title="Dynamic Renal"
+            If dbval Like "Dynamic Renal*" Then 
+                Save_Dataset(ImageItems(counter))
+                allocated = allocated + 1
+                sorting_renal = sorting_renal & " Dynamic Renal "
+            ElseIf (sorting_renal Like "*Dynamic Renal*") = False Then ' ( I told them we've already got one! )
+                Set mainScreen=CreateScreen("basic1.rt",1)
+                Set bobVP(0) = GetViewport("cell1")
+                Clear bobVP(0)
+                VPFormat bobVP(0),10,12
+                Display ImageItems(counter),"cell1"
+                bobVP(0).Color = LINEAR
+                bobVP(0).LabelFormat = NONE_FORMAT
+                If (msgbox("Is this the renal perfusion and function?",ebYesNo))=ebYes Then
+                    Save_Dataset(ImageItems(counter))
+                    sorting_renal = sorting_renal & " Dynamic Renal "
+                    allocated = allocated + 1
+                End If
+                Clear bobVP(0)
+            End If
+        End If
+    Next counter
+    If allocated < MaxImages Then  ' We've not allocated all images
+        If allocated < 5 Then ' We've not found all study parts
+            If (sorting_renal Like "*Dynamic Renal*") = False Then ' ( I told them we've already got one! )
+                Display_Dataset_For_Matching("Dynamic Renal")  
+            End If
+            If (sorting_renal Like "*Pre_Syr*") = False Then ' ( I told them we've already got one! )
+                Display_Dataset_For_Matching("Pre_Syr")  
+            End If
+            If (sorting_renal Like "*Marker*") = False Then ' ( I told them we've already got one! )
+                Display_Dataset_For_Matching("Marker")  
+            End If
+            If (sorting_renal Like "*Post Void*") = False Then ' ( I told them we've already got one! )
+                Display_Dataset_For_Matching("Post Void")  
+            End If
+            If (sorting_renal Like "*Inj Site*") = False Then ' ( I told them we've already got one! )
+                Display_Dataset_For_Matching("Inj Site")  
+            End If
+        End If
+    End If
+    msgbox "Thank you for using  " & VERSION
+End Sub
+
+' ********************************************************************************************
+' *                     Evaluating Gastric Emptying Input
+' ********************************************************************************************
+Sub Eval_GE
+    Dim sorting_ge   ' Keeps track of what images have been allocated
+    Dim allocated As Integer  'Keeps track of how many images have been allocated
+    Dim counter As Integer
+    Dim dual As Integer ' check for dual-isotopeness and also a counter!
+    Dim isotope As String
+    'Performing a check for dual-isotope-ness
+    dual=1
+    retval = GetAttribValue(ImageItems(0), "Dataset", "DatasetName", dbval)
+
+
+    If dbval Like "*Tc-99m*" Then  ' this may be a dual-isotope
+        retval = GetAttribValue(ImageItems(1),"Dataset","DatasetName",dbval)
+        If dbval Like "*In-111*" Then  'Probably is dual isotope, ask user.
+            If (MsgBox("This appears to be a dual-isotope study.  Is that correct?",ebYesNo)) = ebYes Then  ' It's not, we can continue.
+                dual=2
+            End if
+        End if
+    End if     
+    For counter = 0 To (MaxImages-1)    ' running through images, matching up what we can safely
+        retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetType",dbval_type)              
+        retval = GetAttribValue(ImageItems(counter), "Dataset", "DatasetName", dbval)
+        If dbval_type = 0 Then  'It's a static image - (value 0...) - I've run into one dynamic, but it was a weird one...
+        'There is probably a way to check both of them at the same time, but honestly I don't have the brainpower
+        'right now to figure it out and debug it.
+            If (dbval Like "*In-*") = false Then  ' Tc99m Processing
+                If dbval Like "*Imm*" Then
+                    title = "Imm lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & " Imm lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*15*" Then
+                    title = "15 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "15 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*30*" Then
+                    title = "30 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "30 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*45*" Then
+                    title = "45 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "45 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*60*" Then
+                    title = "60 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "60 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*75*" Then
+                    title = "75 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "75 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*90*" Then
+                    title = "90 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "90 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*105*" Then
+                    title = "105 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & " 105 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*120*" Then
+                    title = "120 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "120 min lao "
+                    allocated = allocated + 1               
+                End If                                            ' end tc99m processing
+            ElseIf (dbval Like "*In-*") = true Then  ' indium processing
+                dual = 2  ' This is a double-check to make sure that the script knows that double isotope processing is occurring
+                If dbval Like "*Imm*" Then
+                    title = "In-111 Imm lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & " In-111 Imm lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*15*" Then
+                    title = "In-111 15 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 15 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*30*" Then
+                    title = "In-111 30 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 30 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*45*" Then
+                    title = "In-111 45 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 45 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*60*" Then
+                    title = "In-111 60 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 60 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*75*" Then
+                    title = "In-111 75 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 75 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*90*" Then
+                    title = "In-111 90 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 90 min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*105*" Then
+                    title = "In-111 105 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & " min lao "
+                    allocated = allocated + 1
+                elseif dbval Like "*120*" Then
+                    title = "In-111 120 min lao"
+                    Save_Dataset(ImageItems(counter))
+                    sorting_ge = sorting_ge & "In-111 120 min lao "
+                    allocated = allocated + 1               
+                End If
+            End If 'end of in111 processing
+        End If ' end of loop
+    Next counter
+    If allocated < MaxImages Then  ' We've not allocated all images    
+        If allocated < (dual*9) Then ' We've not found all study parts
+            For counter = 1 to dual
+                If counter=1 Then
+                    scratch = ""
+                elseif counter = 2 Then
+                    scratch = "In-111 "
+                End If
+                If (sorting_ge Like "*mm lao*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "Imm lao")  
+                End If
+                If (sorting_ge Like "*15*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "15 min lao")  
+                End If
+                If (sorting_ge Like "*30*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "30 min lao")  
+                End If
+                If (sorting_ge Like "*45*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "45 min lao")  
+                End If
+                If (sorting_ge Like "*60*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "60 min lao")  
+                End If
+                If (sorting_ge Like "*75*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "75 min lao")  
+                End If
+                If (sorting_ge Like "*90*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "90 min lao")  
+                End If
+                If (sorting_ge Like "*105*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "105 min lao")  
+                End If
+                If (sorting_ge Like "*120*") = False Then ' ( I told them we've already got one! )
+                    Display_Dataset_For_Matching(scratch & "120 min lao")  
+                End If
+            Next counter               
+        End If
+    End If
+    msgbox "Thank you for using  " & VERSION
+End Sub
+
+
+' ********************************************************************************************
+' *                     These are the functions that Rose M. wrote.  Very helpful in giving me shortcuts
+' *              in my kludgy code!  :)   Added error-checking in 1.9c
+' ********************************************************************************************
+
+Sub ChangePatient
+    Dim retval  As Integer
+    Dim dbVal   As Variant
+    
+    Set img1 = ImageItems(0)
+    Load img1
+    Set patient1 = GetPatient(img1)
+
+    'Change Patient name
+    retval = GetAttribValue(img1, "Patient", "PatientName", dbVal)
+    pName = InputBox("Enter Patient Name", "Name", dbVal)
+    If (pName = "") = False Then
+    retval = SetAttribValue(patient1, "PatientName", pName, 1)
+    retval = SetAttribValue(patient1, "Name", pName, 1)
+    End If
+    'Change Patient ID
+    retval = GetAttribValue(img1, "Patient", "PatientId", dbVal)
+    pId = InputBox("Enter Patient ID", "ID", dbVal)
+    If (pId = "") = False Then
+    retval = SetAttribValue(patient1, "PatientId", pId, 1)
+    End If
+    Save patient1
+    msgbox "Thank you for using  " & VERSION
+End Sub
+
+Sub ChangeStudy
+    Dim retval  As Integer
+    Dim dbVal   As Variant
+    
+    Set img1 = ImageItems(0)
+    Load img1
+    Set study1 = GetStudy(img1)
+    'Change Study Name/ID
+    retval = GetAttribValue(ImageItems(0), "Study", "AccessionNumber", dbval)
+    sName = InputBox("Enter the accession number", "Accession Number", dbVal)
+    If (sName = "") = False Then
+        retval = SetAttribValue(study1, "AccessionNumber", sName, 1)
+    End If
+    retval = GetAttribValue(img1, "Study", "StudyId", dbVal)
+    sName = InputBox("Enter Study Name", "Name", dbVal)
+    If (sName = "") = False Then
+        retval = SetAttribValue(study1, "StudyId", sName, 1)
+        retval = SetAttribValue(study1, "Name", sName, 1)
+    End If
+    'Change Study Comments
+    retval = GetAttribValue(img1, "Study", "Description", dbVal)
+    sComments = InputBox("Enter Study Comments", "Comments", dbVal)
+    retval = SetAttribValue(study1, "Description", sComments, 1)
+    Save study1
+    msgbox "Thank you for using  " & VERSION
+End Sub
+
+Sub ChangeSeries
+    sName = InputBox("Type the name you want it to end up as.", "Name", dbVal)
+    If (sName = "" ) = False Then
+        Display_Dataset_For_Matching(sName)         
+    End If
+    msgbox "Thank you for using  " & VERSION
+End Sub
