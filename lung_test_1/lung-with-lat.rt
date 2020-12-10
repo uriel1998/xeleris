@@ -1,0 +1,56 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                                
+!             Review Template Script             
+!                                                
+!                                                
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+top.name:		top
+
+top.format:		{perf6,   	0.0000, 0.5000, 0.2500, 0.7500},\
+				{perf7,   	0.0000, 0.7500, 0.2500, 1.0000},\
+				{perf1,   	0.5000, 0.5000, 0.7500, 0.7500},\
+				{perf2,   	0.7500, 0.5000, 1.0000, 0.7500},\
+				{vent,   	0.0000, 0.0408, 1.0000, 0.4992},\
+				{perf3,   	0.2500, 0.7500, 0.5000, 1.0000},\
+				{perf0,   	0.2500, 0.5000, 0.5000, 0.7500},\
+				{perf5,   	0.7500, 0.7500, 1.0000, 1.0000},\
+				{perf4,   	0.5000, 0.7500, 0.7500, 1.0000},\
+				{Title,   	0.0000, 0.0000, 1.0000, 0.0400}
+
+top.perf6.name:    perf6
+top.perf6.contents:    stub
+
+top.perf7.name:    perf7
+top.perf7.contents:    stub
+
+top.perf1.name:    perf1
+top.perf1.contents:    stub
+
+top.perf2.name:    perf2
+top.perf2.contents:    stub
+
+top.vent.name:    vent
+top.vent.contents:    stub
+
+top.perf3.name:    perf3
+top.perf3.contents:    stub
+
+top.perf0.name:    perf0
+top.perf0.contents:    stub
+
+top.perf5.name:    perf5
+top.perf5.contents:    stub
+
+top.perf4.name:    perf4
+top.perf4.contents:    stub
+
+top.Title.name:    Title
+top.Title.contents:    stub
+
+
+top.*.contents:          stub
+top.*.type:              Imgvp
+top.*.colour_map:        ge_colour
+top.*.imgvp_type:        image
+top.*.acqparam_format:   basicFormat.lead

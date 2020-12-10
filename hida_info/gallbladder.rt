@@ -1,0 +1,32 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                                
+!             Review Template Script             
+!                                                
+!                                                
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+top.name:		top
+
+top.format:		{cell1,   	0.0000, 0.5500, 0.4506, 1.0000},\
+				{cell2,   	0.5500, 0.5500, 1.0000, 1.0000},\
+				{cell0,   	0.0000, 0.0500, 1.0000, 0.5500},\
+				{Title,   	0.0000, 0.0000, 1.0000, 0.0500}
+
+top.cell1.name:    cell1
+top.cell1.contents:    stub
+
+top.cell2.name:    cell2
+top.cell2.contents:    stub
+
+top.cell0.name:    cell0
+top.cell0.contents:    stub
+
+top.Title.name:    Title
+top.Title.contents:    stub
+
+
+top.*.contents:          stub
+top.*.type:              Imgvp
+top.*.colour_map:        ge_colour
+top.*.imgvp_type:        image
+top.*.acqparam_format:   basicFormat.lead
