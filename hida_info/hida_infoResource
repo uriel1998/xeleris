@@ -1,41 +1,41 @@
-hida_info.Ebs0.FileName:	hida_info.ebs 
-hida_info.EntryPoint.DataValidate:	DataValidate 
-hida_info.EntryPoint.Main:	Main 
-hida_info.Include0.QSubProtoName:	hida_info
 hida_info.Include0.moduleName:	$GESCRIPTDIR/QProtoLib/AppUtils.ebs
-hida_info.Include1.moduleName:	$GESCRIPTDIR/QProtoLib/CustProcedures.ebs
-hida_info.Include2.moduleName:	$GESCRIPTDIR/QProtoLib/FRData_ExternalLib_Load.ebs
-hida_info.Include3.moduleName:	$GESCRIPTDIR/QProtoLib/FRData_ExternalLib_Save.ebs
-hida_info.MemorySize:	22MB
-hida_info.NumEbsFiles:	1 
-hida_info.NumIncludes:	4
-hida_info.NumPulldowns:	1
-hida_info.NumTabs:	1
-hida_info.NumUnits:	1
-hida_info.Pulldown0.Name:	File
-hida_info.Pulldown0.NumPBs:	5
-hida_info.Pulldown0.PB0.Name:	First Hour
-hida_info.Pulldown0.PB0.Action:	display_60
-hida_info.Pulldown0.PB1.Name:	Second Hour
-hida_info.Pulldown0.PB1.Action:	display_120
-hida_info.Pulldown0.PB2.Name:	Display Whole
-hida_info.Pulldown0.PB2.Action:	display_whole
-hida_info.Pulldown0.PB3.Action:	SaveBobsResults
-hida_info.Pulldown0.PB3.Name:	Save
-hida_info.Pulldown0.PB4.Action:	(Quit)QuitCard
-hida_info.Pulldown0.PB4.Name:	Quit
-hida_info.Source:	1
-hida_info.Tab0.Action:	
-hida_info.Tab0.Name:	Tab
-hida_info.Tab0.NumPBs:	3
+hida_info.Include0.QSubProtoName:	hida_info
+hida_info.Unit0.UnitName:	$GESCRIPTDIR/QProtoLib/DUCUnit
+hida_info.Unit0.QSubProtoName:	hida_info
 hida_info.Tab0.PB0.Name:	First Hour
 hida_info.Tab0.PB0.Action:	display_60
+hida_info.Tab0.PB0.Type:	First Hour
 hida_info.Tab0.PB1.Name:	Second Hour
 hida_info.Tab0.PB1.Action:	display_120
+hida_info.Tab0.PB1.Type:	Second Hour
 hida_info.Tab0.PB2.Name:	Display Whole
 hida_info.Tab0.PB2.Action:	display_whole
 hida_info.Tab0.PB2.Type:	hour_all
-
-
-hida_info.Unit0.QSubProtoName:	hida_info
-hida_info.Unit0.UnitName:	$GESCRIPTDIR/QProtoLib/DUCUnit
+hida_info.Tab0.Name:	Tab
+hida_info.Tab0.Action:	
+hida_info.Tab0.NumPBs:	3
+hida_info.Include2.moduleName:	$GESCRIPTDIR/QProtoLib/FRData_ExternalLib_Load.ebs
+hida_info.Include3.moduleName:	$GESCRIPTDIR/QProtoLib/FRData_ExternalLib_Save.ebs
+hida_info.Pulldown0.PB2.Name:	Display Whole
+hida_info.Pulldown0.PB2.Action:	display_whole
+hida_info.Pulldown0.PB1.Name:	Second Hour
+hida_info.Pulldown0.PB1.Action:	display_120
+hida_info.Pulldown0.PB4.Name:	Quit
+hida_info.Pulldown0.PB4.Action:	(Quit)QuitCard
+hida_info.Pulldown0.PB3.Name:	Save
+hida_info.Pulldown0.PB3.Action:	SaveBobsResults
+hida_info.Pulldown0.PB0.Name:	First Hour
+hida_info.Pulldown0.PB0.Action:	display_60
+hida_info.Pulldown0.Name:	File
+hida_info.Pulldown0.NumPBs:	5
+hida_info.Ebs0.FileName:	hida_info.ebs 
+hida_info.EntryPoint.Main:	Main 
+hida_info.EntryPoint.DataValidate:	DataValidate 
+hida_info.Include1.moduleName:	$GESCRIPTDIR/QProtoLib/CustProcedures.ebs
+hida_info.Source:	1
+hida_info.NumEbsFiles:	1 
+hida_info.NumUnits:	1
+hida_info.NumPulldowns:	1
+hida_info.MemorySize:	0MB
+hida_info.NumIncludes:	4
+hida_info.NumTabs:	1

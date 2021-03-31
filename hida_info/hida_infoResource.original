@@ -1,0 +1,24 @@
+hida_info.Ebs0.FileName:	hida_info.ebs 
+hida_info.Unit0.UnitName:	$GESCRIPTDIR/QProtoLib/DUCUnit 
+hida_info.Unit0.QSubProtoName:	hida_info
+hida_info.Pulldown0.PB0.Name:	Quit
+hida_info.Pulldown0.PB0.Action:	(Quit)QuitCard
+hida_info.Pulldown0.Name:	File
+hida_info.Pulldown0.NumPBs:	1
+hida_info.Tab0.PB0.Name:	Main
+hida_info.Tab0.PB0.Action:	Main
+hida_info.Tab0.PB0.Type:	Main
+hida_info.Tab0.Name:	Tab
+hida_info.Tab0.Action:	
+hida_info.Tab0.NumPBs:	1
+hida_info.EntryPoint.Main:	Main 
+hida_info.EntryPoint.DataValidate:	DataValidate 
+hida_info.Include0.moduleName:	$GESCRIPTDIR/QProtoLib/AppUtils.ebs 
+hida_info.Include0.QSubProtoName:	hida_info
+hida_info.Source:	1
+hida_info.NumEbsFiles:	1 
+hida_info.NumPulldowns:	1
+hida_info.MemorySize:	22MB
+hida_info.NumUnits:	1
+hida_info.NumIncludes:	1
+hida_info.NumTabs:	1

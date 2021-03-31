@@ -1,9 +1,9 @@
 '#############################################################################
-' Version 0.1.0 gallbladder scan
+' Version 1.1 GI Bleeding protocol
 ' by Steven Saus 
 ' MIT License
 
-' Copyright (c) 2020 Steven Saus
+' Copyright (c) 2019 Steven Saus
 
 ' Permission is hereby granted, free of charge, to any person obtaining a copy
 ' of this software and associated documentation files (the "Software"), to deal
@@ -25,28 +25,25 @@
 
 '#############################################################################
 
-Const VERSION        As String = "1.0.0" 
+Const VERSION        As String = "1.1" 
 
+'#############################################################################
+'  0.9a - 3/4/5 - first working thing
+'  0.9b - 4/18/05 fixed bug where loading only 1st 45 min would crash while 
+'           looking for acc #
+'  0.9c - 4/27/05 - took out subtraction views, put in option for delay 
+'           STATICS (working), finished 5/20/05
+'  0.9d - 5/23/05 - fix for < 45 min acquisitions.
+'           added error traps for 2nd 45 and such, added 1min/dyn 
+'  1.0 - 8/9/05 - added modality checks
+'           Removed extracted, erased subtraction parts of code
+'  1.1 -March 2019 - Rewrite, allow for up to four dyn acquisitions, parse 
+'           out first minute. Redid results series, added in version check
 '#############################################################################
 
 
-'#############################################################################
-' Flow :
-' - load up dynamics
-' - if multiple dynamics, offer to append
-' - reframe (possibly appended) dynamics to 5min/fr
-' - identify rt lat (if multiple, get latest rt lat)
-' - display '
+'TODO:  WHAT THE HECK IS UP WITH THE HEADER BEING GONE?'
 
-' Results structure - 
-' raw(0) 1st 60 1m/fr
-' compressed(0) 1st 60 5m/fr
-' raw (1) 2nd 60 1m/fr
-' compressed(1)  2nd 60 5m/fr
-' raw (2) 120m 1m/fr
-' compressed(2)  120m 5m/fr'
-' raw (3) rt lat
- 
 '#############################################################################
 ' Declarations
 '#############################################################################
@@ -60,17 +57,14 @@ Dim Phases           As Integer
 Dim ImageItems()     As Image
 Dim FirstMin    As Image
 Dim accimage    As Image
-Dim Dyn_Labels(5)  As Annot
-Dim Time_Labels(36) As Annot
-Dim TimeNum As Integer  'value for compressed string
-Dim TimeString As String  
+Dim Dyn_Labels(4)  As Annot
 Dim dbval As Variant
 Dim bobtext(16) As Annot
 Dim scr_str(3) As String ' scratch str
 Dim scratch(1) As Variant 'variant scratch
 Dim counter  As Integer
 Dim counter1 As Integer
-Dim done(2) As Boolean '(0 = 1st60, 1= 2nd60 )
+Dim done(6) As Boolean '(0 = 1st45, 1= 2nd45, 2 = third 45, 3 = 4th 45 )
 Dim study1 As Study
 Dim patientname As Variant  
 Dim patientid As Variant
@@ -78,15 +72,14 @@ Dim seriesdate As Variant
 Dim tech As String
 Dim bobVP As Viewport
 Dim series1 As series
-Dim counter2 as Integer
 
 Type Results                                      
-    raw(4) As Image '(0 = 1st60, 1= 2nd60, 3=whole, 4 = rt lat  )
-    compressed(3) As Image '(0 = 1st60, 1= 2nd60, 3 = whole  )
+    raw(6) As Image '(0 = 1st45, 1= 2nd45, 2 = third 45, 3 = 4th 45, 4 = 1st min, 5 = whole thing, )
+    compressed(6) As Image '(0 = 1st45, 1= 2nd45, 2 = third 45, 3 = 4th 45, 4 = 1st min, 5 = whole thing, )
     techinit As String
 End Type        
 
-Dim gallbladder_results As Results 
+Dim gibleed_results As Results 
 
 '#############################################################################
 Function  DataValidate(dv_Message       As String,_
@@ -122,6 +115,25 @@ Function  DataValidate(dv_Message       As String,_
     DataValidate = 1
 End Function   
 
+'#############################################################################
+Function SeparateFirstMinute(SweetPea As Image, countb As Integer)
+'#############################################################################
+' Separate out first minute from first 45 min
+'#############################################################################
+    
+    If SweetPea.Length > 60 Then  'sanity check
+        'Extract first minute & copy to save structure  (NOT ImageItems)
+        Set FirstMin = Extract(SweetPea,1,60,"First Minute")
+        Set gibleed_results.raw(4) = Copy(FirstMin,"First Minute Raw")
+        'This is "compressed" here for the display loop so it works.
+        Set gibleed_results.compressed(4) = Copy(FirstMin,"First Minute 1 sec/fr")
+        'Extract stage 2 & back into ImageItems
+        Set accimage = Extract(SweetPea,61,SweetPea.Length,"First 45 Minutes")
+        ' Gets fed back into ProcessDynamic, so not copying it now.
+        ' Set gibleed_results.raw(0) = Copy(accimage,"First 45 Minutes)
+        Set ImageItems(countb) = Copy(accimage,"First 45 Minutes")
+    End If
+End Function
 
 '#############################################################################
 Function ProcessDynamic(inputa As Image, order As Integer)
@@ -133,9 +145,9 @@ Function ProcessDynamic(inputa As Image, order As Integer)
     scr_str(0) = "Raw dynamics #" & order
     scr_str(1) = "ANT 5min/fr dyn #" & order
     'copying raw image into save structure
-    Set gallbladder_results.raw(order-1) = Copy(inputa,scr_str(0)) 
+    Set gibleed_results.raw(order-1) = Copy(inputa,scr_str(0)) 
     ' compressing input image
-    Set gallbladder_results.compressed(order-1) = ReframeStep(inputa,5,5,scr_str(1))  
+    Set gibleed_results.compressed(order-1) = ReframeStep(inputa,5,5,scr_str(1))  
     ' Marking our "done" variable
     done(order-1) = True
 End Function    
@@ -151,16 +163,25 @@ Function AppendData
     'I'm not sure if I can process and assign an image in the same command, so
     'I might have to add a lot of copying later on, but I hope not.
     If done(0) = True Then
-        Set gallbladder_results.compressed(0) = Copy(gallbladder_results.compressed(0),"ANT 0-60m 5m/fr")
-        Set gallbladder_results.raw(0) = Copy(gallbladder_results.raw(0),"ANT 0-60m 1m/fr")
+        Set gibleed_results.compressed(5) = Copy(gibleed_results.compressed(0),"ANT 45m 5m/fr")
+        Set gibleed_results.raw(5) = Copy(gibleed_results.raw(0),"ANT 45m 1m/fr")
         If done(1) = True Then
-            Set gallbladder_results.compressed(1) = Copy(gallbladder_results.compressed(1),"ANT 61-120m 5m/fr")
-            Set gallbladder_results.raw(1) = Copy(gallbladder_results.raw(1),"ANT 61-120m 1m/fr")
-            'Getting full study
-            Set gallbladder_results.compressed(2) = AppendImage(gallbladder_results.compressed(0),_
-                gallbladder_results.compressed(1),"ANT 0-120 5m/fr")
-            Set gallbladder_results.raw(2) = AppendImage(gallbladder_results.raw(0),_
-                gallbladder_results.raw(1),"ANT 0-120m 1m/fr")
+            Set gibleed_results.compressed(5) = AppendImage(gibleed_results.compressed(5),_
+                gibleed_results.compressed(1),"ANT 90m 5m/fr")
+            Set gibleed_results.raw(5) = AppendImage(gibleed_results.raw(5),_
+                gibleed_results.raw(1),"ANT 90m 1m/fr")
+            If done(2) = True Then
+                Set gibleed_results.compressed(5) = AppendImage(gibleed_results.compressed(5),_
+                    gibleed_results.compressed(2),"ANT 135m 5m/fr")
+                Set gibleed_results.raw(5) = AppendImage(gibleed_results.raw(5),_
+                    gibleed_results.raw(2),"ANT 135m 1m/fr")
+                If done(3) = True Then
+                    Set gibleed_results.compressed(5) = AppendImage(gibleed_results.compressed(5),_
+                        gibleed_results.compressed(3),"ANT 180m 5m/fr")
+                    Set gibleed_results.raw(5) = AppendImage(gibleed_results.raw(5),_
+                        gibleed_results.raw(3),"ANT 180m 1m/fr")
+                End If
+            End If
         End If  
     End If
 End Function
@@ -170,15 +191,14 @@ Function StudyMetaData
 '#############################################################################
 ' Retrieving/assigning the accession number and technologist initials 
 '#############################################################################
-    If gallbladder_results.techinit = "" Then
+    If gibleed_results.techinit = "" Then
         scr_str(0) = InputBox$("Technologist initials, please.","Tech Initials")
         If (scr_str(0) = "") = False Then
-            gallbladder_results.techinit = scr_str(0)
+            gibleed_results.techinit = scr_str(0)
         Else
-            gallbladder_results.techinit = "NO TECH INITIALS"
+            gibleed_results.techinit = "NO TECH INITIALS"
         End If
     End If
-    'TODO - ERROR HERE IF JUST RESULTS SERIES
     Set accimage = Copy(ImageItems(0),"for accession #")
     retval = GetAttribValue(accimage,"Patient","PatientName",patientname)
     retval = GetAttribValue(accimage,"Patient","PatientID",patientid)
@@ -207,27 +227,34 @@ Function LoadRawData
 
     For counter = 0 To MaxImages-1
         Load ImageItems(counter)
-		retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
-		MsgBox dbval
         retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetType",dbval)          
-		MsgBox dbval
         If dbval = 8 Then ' 8 is dynamic, 0 is static
 
             ' *** Matching label to which part it is            
             retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
+            If ImageItems(counter).Length > 60 Then
+                'TODO Separate out first 60 seconds HERE
+                scratch(0) = 1
+                Set accimage = Copy(ImageItems(counter))
+                retval = SeparateFirstMinute(accimage,counter)
+            ElseIf ImageItems(counter).Length = 60 Then
+                scratch(0) = 0          
+            End If
 
             'This is a separate test so it catches where the first acq gets
             'dumped back into the process after extracting the first minute
-            If ImageItems(counter).Length > 2 Then
+            If ImageItems(counter).Length <= 45 Then
                 scr_str(0) = dbval
                 matching_loop:  'lloooooooooooooooooooooooooooooooooooooop!
 'TODO: Make switch work with multiple versions, etc, with limitation of seven variables'                
                 scratch(0) = Switch(scr_str(0) Like "*first*",1,_
-                            scr_str(0) Like "*second*",2)
+                            scr_str(0) Like "*second*",2,_
+                            scr_str(0) Like "*third*",3,_
+                            scr_str(0) Like "*fourth*",4)
                 If IsNull(scratch(0)) = True Then
                     scr_str(1) = InputBox$("Is "  & scr_str(0) & _
-                        " the first or second." &_
-                         Chr(10) & Chr(13) &  "Which is it, first or second? Type QUIT to quit.",_
+                        " the first, second, third, or fourth set of images." &_
+                         Chr(10) & Chr(13) &  "Which is it, first, second, third, or fourth? Type QUIT to quit.",_
                           "Be Cool Stay In School")
                     If scr_str(1) = "quit" Then
                         Exit Function
@@ -243,13 +270,15 @@ Function LoadRawData
                 If done(scratch(0)-1) = True Then
                     scr_str(1) = InputBox$("We already have results that correspond to image set #" _
                     & CStr(scratch(0)) & "." & Chr(10) & Chr(13) &  "Which shall "_
-                     & dbval & ", replace, the first or second?  Type QUIT to exit the program.", "Be Cool Stay In School")
+                     & dbval & ", replace, the first, second, third, or fourth?  Type QUIT to exit the program.", "Be Cool Stay In School")
                     If scr_str(1) = "" Then
                         Exit Function
                     End If
                     If (Not scr_str(1) = "quit") Then  ' okay, not reassigning and giving another chance.  Nope.
                         scratch(0) = Switch(scr_str(1) Like "*first*",1,_
-                            scr_str(1) Like "*second*",2)
+                            scr_str(1) Like "*second*",2,_
+                            scr_str(1) Like "*third*",3,_
+                            scr_str(1) Like "*fourth*",4)
                     Else 
                         Exit Function
                     End If
@@ -262,19 +291,7 @@ Function LoadRawData
                     End If
                 End If
             End If
-        Else  
-
-			scr_str(1) = InputBox$("We already have results that correspond to image set #" )
-            If dbval = 0 Then ' 8 is dynamic, 0 is static'is static image
-                retval = GetAttribValue(ImageItems(counter),"Dataset","DatasetName",dbval)
-                scr_str(0) = dbval
-                If scr_str(0) Like "*RT*" Then
-                    Set gallbladder_results.raw(3) = Copy(ImageItems(counter),"RT LATERAL") 
-                End If
-            End If
-
-        
-		End If  
+        End If  
     Next counter
 End Function
 
@@ -285,120 +302,97 @@ Function BringUpResults
 ' Load Results
 '#############################################################################
     ' Somewhat elaborate way to load results in without knowing their name
-    ' #TODO - Where am i pullin gup the right lateral
-    done(1) = LoadResults(gallbladder_results, "gallbladder120Results")
     
-    If done(1) = True Then
-        retval = ProcessDynamic(gallbladder_results.raw(0),1) 
-        retval = ProcessDynamic(gallbladder_results.raw(1),2) 
+    done(3) = LoadResults(gibleed_results, "gibleed180Results")
+    
+    If done(3) = True Then
+        Set FirstMin = Copy(gibleed_results.raw(4),"First Minute")
+        retval = ProcessDynamic(gibleed_results.raw(0),1) 
+        retval = ProcessDynamic(gibleed_results.raw(1),2) 
+        retval = ProcessDynamic(gibleed_results.raw(2),3) 
+        retval = ProcessDynamic(gibleed_results.raw(3),4) 
     Else
-        done(0) = LoadResults(gallbladder_results, "gallbladder60Results") 
-        If done(0) = True Then
-        retval = ProcessDynamic(gallbladder_results.raw(0),1) 
+        done(2) = LoadResults(gibleed_results, "gibleed135Results") 
+        If done(2) = True Then
+            Set FirstMin = Copy(gibleed_results.raw(4),"First Minute")
+            retval = ProcessDynamic(gibleed_results.raw(0),1) 
+            retval = ProcessDynamic(gibleed_results.raw(1),2) 
+            retval = ProcessDynamic(gibleed_results.raw(2),3) 
+        Else
+            done(1) = LoadResults(gibleed_results, "gibleed90Results")
+            If done(1) = True Then
+                Set FirstMin = Copy(gibleed_results.raw(4),"First Minute")
+                retval = ProcessDynamic(gibleed_results.raw(0),1) 
+                retval = ProcessDynamic(gibleed_results.raw(1),2) 
+            Else
+                done(0) = LoadResults(gibleed_results, "gibleed45Results") 
+                If done(0) = True Then
+                    Set FirstMin = Copy(gibleed_results.raw(4),"First Minute")
+                    retval = ProcessDynamic(gibleed_results.raw(0),1) 
+                End If
+            End If
         End If
     End If
-
 End Function
 
-
-'TODO - display isn't working out quite right
 '#############################################################################
 Function DisplayResults(phase As Integer)
 '#############################################################################
 ' Displaying results; choosing programatically here
 '#############################################################################
 
-    Set mainScreen=CreateScreen("gallbladder.rt")  
-    ' has only three viewports, a flow on top and 2 "spots" for RT LAT and dynamic
+    
+    Set mainScreen=CreateScreen("basic1.rt")
     number_of_vports = ListViewPorts(mainScreen,mainVP)
     Display mainScreen
-
-    
-    Set mainVP(0) = GetViewport("cell0")
-    
-    If gallbladder_results.compressed(phase) Is Nothing Then
-        If gallbladder_results.compressed(phase-2) Is Nothing Then
-            scratch(0) = "This data is not available/acquired."
-            Set bobtext(0) = AnnotText(mainVP(0),0.25,0.25,scratch(0))
-            bobtext(0).Font = LARGE_FONT
-            ' HOPE THE DOCUMENTATION IS RIGHT HERE.......
-            Exit Function  
-        Else
-            phase=(phase-2)
-        End If
-    End If
-
-    ' #TODO ENSURE THAT PROCESSES STOPPED before 120m still work
-    ' # This SHOULD work by decreasing phase by 1 if it's the 60m view
-    ' #TODO NOTE # of frames: gallbladder_results.raw(2).Length
-    If gallbladder_results.compressed(phase) Is Not Nothing Then    
-        Display gallbladder_results.compressed(phase),"cell0"   
-        If phase = 0 Then
-            VPFormat mainVP(0),3,4
-            scr_str(1) = gallbladder_results.raw(phase).Length & " mins total"
+    Set mainVP(0) = GetViewport("cell1")
+    If gibleed_results.compressed(phase) Is Nothing Then
+        scratch(0) = "This data is not available/acquired."
+        Set bobtext(0) = AnnotText(mainVP(0),0.25,0.25,scratch(0))
+        bobtext(0).Font = LARGE_FONT
+        ' HOPE THE DOCUMENTATION IS RIGHT HERE.......
+        Exit Function  
+    Else
+        Display gibleed_results.compressed(phase),"cell1"
+        If phase < 4 Then
+            VPFormat mainVP(0),3,3
             Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.2,patientname & Chr(10) & Chr(13) & patientid,1)                        
             Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.2,Cstr(seriesdate),3)                        
-            Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.2,gallbladder_results.techinit,2)
-            Set Dyn_Labels(3) = AnnotText(mainVP(0),0,0.2,scr_str(1),4)
-        ElseIf phase = 1 Then
-            VPFormat mainVP(0),3,4
-            scr_str(1) = gallbladder_results.raw(phase).Length & " mins total"
+            Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.2,gibleed_results.techinit,2)
+        ElseIf phase = 4 Then
+            VPFormat mainVP(0),6,10
             Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.35,patientname & Chr(10) & Chr(13) & patientid,1)   
             Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.35,Cstr(seriesdate),3)                        
-            Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.35,gallbladder_results.techinit,4)
-            Set Dyn_Labels(3) = AnnotText(mainVP(0),0,0.2,scr_str(1),4)
-        ElseIf phase = 2 Then
-            ' Multiple possible lengths here  '12, 24, 36 = 3x4, 4x6, 6x6
-            scr_str(1) = gallbladder_results.raw(2).Length & " mins total"
-
-            If gallbladder_results.compressed(phase).Length <= 12 Then
-                VPFormat mainVP(0),3,4
-            ElseIf gallbladder_results.compressed(phase).Length <= 24 Then
-                VPFormat mainVP(0),4,6
-            ElseIf gallbladder_results.compressed(phase).Length <= 36 Then
+            Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.35,gibleed_results.techinit,4)
+        ElseIf phase = 5 Then
+            ' Multiple possible lengths here  '9, 18, 27, 36 = 3x3, 4x5, 5x6, 6x6
+            If gibleed_results.compressed(phase).Length <= 9 Then
+                VPFormat mainVP(0),3,3
+                Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.2,patientname & Chr(10) & Chr(13) & patientid,1)                        
+                Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.2,Cstr(seriesdate),3)                        
+                Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.2,gibleed_results.techinit,2)
+            ElseIf gibleed_results.compressed(phase).Length <= 18 Then
+                VPFormat mainVP(0),4,5
+                Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.2,patientname & Chr(10) & Chr(13) & patientid,1)                        
+                Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.2,Cstr(seriesdate),3)                        
+                Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.2,gibleed_results.techinit,2)
+            ElseIf gibleed_results.compressed(phase).Length <= 27 Then
+                VPFormat mainVP(0),5,6
+                Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.3,patientname & Chr(10) & Chr(13) & patientid,1)                        
+                Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.3,Cstr(seriesdate),3)                        
+                Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.3,gibleed_results.techinit,2)
+            ElseIf gibleed_results.compressed(phase).Length = 36 Then
                 VPFormat mainVP(0),6,6
+                Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.35,patientname & Chr(10) & Chr(13) & patientid,1)                        
+                Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.35,Cstr(seriesdate),3)                        
+                Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.35,gibleed_results.techinit,2)
             End If
-            Set Dyn_Labels(0) = AnnotText(mainVP(0),0,0.2,patientname & Chr(10) & Chr(13) & patientid,1)                        
-            Set Dyn_Labels(1) = AnnotText(mainVP(0),0,0.2,Cstr(seriesdate),3)                        
-            Set Dyn_Labels(2) = AnnotText(mainVP(0),0,0.2,gallbladder_results.techinit,2)
-            Set Dyn_Labels(3) = AnnotText(mainVP(0),0,0.2,scr_str(1),4)
         End If
-        If gallbladder_results.raw(2) Is Nothing Then  'if there isn't a whole, then there's no second 45
-            If gallbladder_results.raw(0) Is Nothing Then
-            Else
-                Set mainVP(1) = GetViewport("cell2")
-                mainVP(1).Color =  LINEAR
-                Display gallbladder_results.raw(0),"cell2"
-            End If
-        Else
-            Display gallbladder_results.raw(2),"cell2"
-            Set mainVP(1) = GetViewport("cell2")
-            mainVP(1).Color =  LINEAR
-        End If        
-        If gallbladder_results.raw(3) Is Not Nothing Then  'RT lateral
-            Display gallbladder_results.raw(3),"cell1"   
-            Set mainVP(2) = GetViewport("cell1")
-            mainVP(2).Color =  LINEAR
-        End If
+       
 		Call CustFillScreenHeader(ImageItems,"","",MainVP(0))
         mainVP(0).Color =  LINEAR
-        mainVP(0).LabelFormat = NONE_FORMAT
-        retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,PANZOOM_TOOL,ROI_TOOL,CINE_TOOL)
-        
-        '# begin auto-time labeling
-        ' NOTE # of frames: gallbladder_results.raw(2).Length
-        counter2 = 1
-        Do 
-            If phase = 1 Then 
-                TimeNum = 5*(counter2 + 12)
-            Else
-                TimeNum = 5*(counter2)
-            End If
-            
-            TimeString = TimeNum & " mins"
-            Set Time_Labels(counter2) = AnnotText(mainVP(0),0.0,0.9,TimeString,counter2)
-            counter2 = counter2 + 1
-        Loop While counter2 <= gallbladder_results.compressed(phase).Length
+        mainVP(0).LabelFormat = NUMBER_FORMAT
+        retb=SelectTools(True,COLOURMAP_TOOL,SCROLL_TOOL,CINE_TOOL,PANZOOM_TOOL,ROI_TOOL)
     End If
 End Function
 
@@ -432,7 +426,6 @@ Sub Main
     scratch(0) = "Processing Complete"
     Set bobtext(0) = AnnotText(bobVP,0.25,0.25,scratch(0))
     bobtext(0).Font = LARGE_FONT
-
 End Sub 
 
 '#############################################################################
@@ -441,26 +434,46 @@ Sub SaveBobsResults
 ' Save your work
 '#############################################################################
     
-    If done(1) = True Then
-        retval = SaveResults(gallbladder_results, "gallbladder120Results")
-        Set series1 = GetSeries(gallbladder_results.raw(1))
-        retval = GetAttribValue(gallbladder_results.raw(1),"Series","Modality",dbVal)
+    If done(3) = True Then
+        retval = SaveResults(gibleed_results, "gibleed180Results")
+        Set series1 = GetSeries(gibleed_results.raw(3))
+        retval = GetAttribValue(gibleed_results.raw(3),"Series","Modality",dbVal)
         If dbVal = "OT" Then
             reval = SetAttribValue(series1,"Modality","NM",1)
             Save series1
         End If
     Else
-        If done(0) = True Then
-            retval = SaveResults(gallbladder_results, "gallbladder60Results")
-            Set series1 = GetSeries(gallbladder_results.raw(0))
-            retval = GetAttribValue(gallbladder_results.raw(0),"Series","Modality",dbVal)
+        If done(2) = True Then
+            retval = SaveResults(gibleed_results, "gibleed135Results")
+            Set series1 = GetSeries(gibleed_results.raw(2))
+            retval = GetAttribValue(gibleed_results.raw(2),"Series","Modality",dbVal)
             If dbVal = "OT" Then
                 reval = SetAttribValue(series1,"Modality","NM",1)
                 Save series1
             End If
+
+        Else
+            If done(1) = True Then
+                retval = SaveResults(gibleed_results, "gibleed90Results")
+                Set series1 = GetSeries(gibleed_results.raw(1))
+                retval = GetAttribValue(gibleed_results.raw(1),"Series","Modality",dbVal)
+                If dbVal = "OT" Then
+                    reval = SetAttribValue(series1,"Modality","NM",1)
+                    Save series1
+                End If
+            Else
+                If done(0) = True Then
+                    retval = SaveResults(gibleed_results, "gibleed45Results")
+                    Set series1 = GetSeries(gibleed_results.raw(0))
+                    retval = GetAttribValue(gibleed_results.raw(0),"Series","Modality",dbVal)
+                    If dbVal = "OT" Then
+                        reval = SetAttribValue(series1,"Modality","NM",1)
+                        Save series1
+                    End If
+                End If
+            End If
         End If
     End If
-
 End Sub
 
 '#############################################################################
@@ -468,17 +481,28 @@ End Sub
 ' function with different variables.
 '#############################################################################
 
-Sub display_60
+Sub display_45
     retval=DisplayResults(0)
 End Sub
 
-Sub display_120
+Sub display_90
     retval=DisplayResults(1)
 End Sub
 
-Sub display_whole
+Sub display_135
     retval=DisplayResults(2)
 End Sub
 
+Sub display_180
+    retval=DisplayResults(3)
+End Sub
+
+Sub display_min
+    retval=DisplayResults(4)
+End Sub
+
+Sub display_whole
+    retval=DisplayResults(5)
+End Sub
 
 '#############################################################################
